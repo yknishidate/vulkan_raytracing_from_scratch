@@ -2,3 +2,4 @@ x64/
 *.spv
 *.vcxproj*
 *.bat
+main.cpp
