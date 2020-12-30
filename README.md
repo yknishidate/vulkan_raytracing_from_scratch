@@ -1,5 +1,7 @@
 # Vulkan Ray Tracing from Scratch
 
+![triangle](triangle.png)
+
 Vulkan Ray Tracing を使って三角形を出せるようにするリポジトリ
 
 ## Features
