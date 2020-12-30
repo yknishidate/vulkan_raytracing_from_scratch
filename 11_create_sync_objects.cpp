@@ -82,8 +82,6 @@ private:
     std::vector<vk::Fence> inFlightFences;
     std::vector<vk::Fence> imagesInFlight;
 
-    size_t currentFrame = 0;
-
     void initWindow()
     {
         glfwInit();
@@ -646,51 +644,6 @@ private:
         }
     }
 
-    void drawFrame()
-    {
-        device->waitForFences(inFlightFences[currentFrame], true, std::numeric_limits<uint64_t>::max());
-        device->resetFences(inFlightFences[currentFrame]);
-
-        // 次に表示する画像のインデックスをスワップチェインから取得する
-        auto result = device->acquireNextImageKHR(
-            swapChain.get(),                             // swapchain
-            std::numeric_limits<uint64_t>::max(),        // timeout
-            imageAvailableSemaphores[currentFrame].get() // semaphore
-        );
-        uint32_t imageIndex;
-        if (result.result == vk::Result::eSuccess) {
-            imageIndex = result.value;
-        } else {
-            throw std::runtime_error("failed to acquire next image!");
-        }
-
-        if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
-            device->waitForFences(imagesInFlight[imageIndex], true, std::numeric_limits<uint64_t>::max());
-        }
-        imagesInFlight[imageIndex] = inFlightFences[currentFrame];
-        device->resetFences(inFlightFences[currentFrame]);
-
-        // レイトレーシングを行うコマンドバッファを実行する
-        vk::PipelineStageFlags waitStage{ vk::PipelineStageFlagBits::eRayTracingShaderKHR };
-        graphicsQueue.submit(
-            vk::SubmitInfo{}
-            .setWaitSemaphores(imageAvailableSemaphores[currentFrame].get())
-            .setWaitDstStageMask(waitStage)
-            .setCommandBuffers(drawCommandBuffers[imageIndex].get())
-            .setSignalSemaphores(renderFinishedSemaphores[currentFrame].get()),
-            inFlightFences[currentFrame]
-        );
-
-        graphicsQueue.presentKHR(
-            vk::PresentInfoKHR{}
-            .setWaitSemaphores(renderFinishedSemaphores[currentFrame].get())
-            .setSwapchains(swapChain.get())
-            .setImageIndices(imageIndex)
-        );
-
-        currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
-    }
-
     Buffer createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryPropertiy, void* data = nullptr)
     {
         // Bufferオブジェクトを作成
@@ -798,9 +751,7 @@ private:
     {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
-            drawFrame();
         }
-        device->waitIdle();
     }
 
     void cleanup()
