@@ -54,7 +54,6 @@ private:
 
     vk::UniqueSwapchainKHR swapChain;
     std::vector<vk::Image> swapChainImages;
-    std::vector<vk::UniqueImageView> swapChainImageViews;
 
     vk::UniqueCommandPool commandPool;
     std::vector<vk::UniqueCommandBuffer> drawCommandBuffers;
@@ -85,12 +84,7 @@ private:
         std::vector<const char*> deviceExtensions = {
             // レイトレーシング拡張
             VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-
-            // VK_KHR_acceleration_structure のために必要
-            VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
-            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
-            VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
+            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME
         };
         vkutils::addDeviceExtensions(deviceExtensions);
 
@@ -104,7 +98,6 @@ private:
 
         swapChain = vkutils::createSwapChain(device.get(), surface.get());
         swapChainImages = vkutils::getSwapChainImages(device.get(), swapChain.get());
-        swapChainImageViews = vkutils::createImageViews(device.get(), swapChainImages);
 
         commandPool = vkutils::createCommandPool(device.get());
         drawCommandBuffers = vkutils::createDrawCommandBuffers(device.get(), commandPool.get());

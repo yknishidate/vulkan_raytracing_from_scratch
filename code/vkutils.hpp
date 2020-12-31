@@ -337,25 +337,6 @@ namespace vkutils
         return images;
     }
 
-    std::vector<vk::UniqueImageView> createImageViews(const vk::Device& device, const std::vector<vk::Image>& swapChainImages)
-    {
-        std::cout << "Create Image Views" << std::endl;
-
-        std::vector<vk::UniqueImageView> swapChainImageViews;
-        swapChainImageViews.resize(swapChainImages.size());
-
-        vk::ComponentMapping components{ vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-            vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity };
-        vk::ImageSubresourceRange subresourceRange{ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-        for (size_t i = 0; i < swapChainImages.size(); i++) {
-            vk::ImageViewCreateInfo createInfo{ {}, swapChainImages[i], vk::ImageViewType::e2D,
-                swapChainImageFormat, components, subresourceRange };
-            swapChainImageViews[i] = device.createImageViewUnique(createInfo);
-        }
-
-        return swapChainImageViews;
-    }
-
     vk::SurfaceFormatKHR getSwapChainImageFormat()
     {
         return swapChainImageFormat;
