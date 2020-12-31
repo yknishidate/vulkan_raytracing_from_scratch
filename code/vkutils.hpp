@@ -184,7 +184,7 @@ namespace vkutils
     vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(const vk::Instance& instance)
     {
         if (!enableValidationLayers) {
-            throw std::runtime_error("validation layer is not enabled.");
+            return vk::UniqueDebugUtilsMessengerEXT{};
         }
         std::cout << "Create Debug Messenger" << std::endl;
 
