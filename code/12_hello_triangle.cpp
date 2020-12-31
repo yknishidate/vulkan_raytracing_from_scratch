@@ -649,7 +649,6 @@ private:
     void drawFrame()
     {
         device->waitForFences(inFlightFences[currentFrame], true, std::numeric_limits<uint64_t>::max());
-        device->resetFences(inFlightFences[currentFrame]);
 
         // 次に表示する画像のインデックスをスワップチェインから取得する
         auto result = device->acquireNextImageKHR(
@@ -664,10 +663,13 @@ private:
             throw std::runtime_error("failed to acquire next image!");
         }
 
+        // 前のフレームがこの画像を使用している場合は待機する
         if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
             device->waitForFences(imagesInFlight[imageIndex], true, std::numeric_limits<uint64_t>::max());
         }
+        // 現在フレームで使用中の画像をマークする
         imagesInFlight[imageIndex] = inFlightFences[currentFrame];
+
         device->resetFences(inFlightFences[currentFrame]);
 
         // レイトレーシングを行うコマンドバッファを実行する
@@ -681,6 +683,7 @@ private:
             inFlightFences[currentFrame]
         );
 
+        // 表示する
         graphicsQueue.presentKHR(
             vk::PresentInfoKHR{}
             .setWaitSemaphores(renderFinishedSemaphores[currentFrame].get())
