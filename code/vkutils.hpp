@@ -2,7 +2,6 @@
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 
 // 1 にするとデバッグメッセージを log.txt に出力する
-// アプリを終了する直前のメッセージを見たい時はこれを使うと楽
 #define OUTPUT_LOG_FILE 0
 
 #include <vulkan/vulkan.hpp>

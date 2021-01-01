@@ -442,7 +442,6 @@ private:
     {
         const uint32_t handleSize = vkutils::getShaderGroupHandleSize();
         const uint32_t handleSizeAligned = vkutils::getHandleSizeAligned();
-        const uint32_t handleAlignment = vkutils::getShaderGroupHandleAlignment();
         const uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
         const uint32_t sbtSize = groupCount * handleSizeAligned;
 
