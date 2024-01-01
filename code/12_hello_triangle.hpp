@@ -130,12 +130,14 @@ private:
                     .setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1})));
         }
 
-        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
+        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get());
+        commandBuffer->begin(vk::CommandBufferBeginInfo{});
         for (auto& image : swapchainImages) {
             vkutils::setImageLayout(commandBuffer.get(), image, vk::ImageLayout::eUndefined,
                                     vk::ImageLayout::ePresentSrcKHR,
                                     {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
         }
+        commandBuffer->end();
         vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), queue);
     }
 
@@ -214,9 +216,11 @@ private:
             .setTransformOffset(0);
 
         // ビルドコマンドを送信してデバイス上でASをビルドする
-        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
+        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get());
+        commandBuffer->begin(vk::CommandBufferBeginInfo{});
         commandBuffer->buildAccelerationStructuresKHR(accelerationBuildGeometryInfo,
                                                       &accelerationStructureBuildRangeInfo);
+        commandBuffer->end();
         vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), queue);
 
         // Bottom Level AS のハンドルを取得する
@@ -294,9 +298,11 @@ private:
             .setTransformOffset(0);
 
         // ビルドコマンドを送信してデバイス上でASをビルドする
-        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
+        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get());
+        commandBuffer->begin(vk::CommandBufferBeginInfo{});
         commandBuffer->buildAccelerationStructuresKHR(accelerationBuildGeometryInfo,
                                                       &accelerationStructureBuildRangeInfo);
+        commandBuffer->end();
         vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), queue);
 
         // Bottom Level AS のハンドルを取得する

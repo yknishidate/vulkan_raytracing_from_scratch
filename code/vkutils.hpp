@@ -65,7 +65,7 @@ inline std::vector<const char*> getRequiredExtensions() {
 }
 
 inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers) {
-    std::cout << "Create Instance" << std::endl;
+    std::cout << "Create instance\n";
 
     // インスタンスに依存しない関数ポインタを取得する
     static vk::DynamicLoader dl;
@@ -106,7 +106,7 @@ inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers)
 }
 
 inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instance) {
-    std::cout << "Create Debug Messenger" << std::endl;
+    std::cout << "Create debug messenger\n";
 
     vk::DebugUtilsMessageSeverityFlagsEXT severityFlags{
         vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
@@ -123,7 +123,7 @@ inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instan
 }
 
 inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance, GLFWwindow* window) {
-    std::cout << "Create Surface" << std::endl;
+    std::cout << "Create surface\n";
 
     // glfw は生の VkSurface や VkInstance で操作する必要がある
     VkSurfaceKHR _surface;
@@ -210,7 +210,7 @@ inline auto getRayTracingProps(vk::PhysicalDevice physicalDevice) {
 inline vk::UniqueDevice createLogicalDevice(vk::PhysicalDevice physicalDevice,
                                             uint32_t queueFamilyIndex,
                                             const std::vector<const char*>& deviceExtensions) {
-    std::cout << "Create Logical Device" << std::endl;
+    std::cout << "Create device\n";
 
     float queuePriority = 1.0f;
     vk::DeviceQueueCreateInfo queueCreateInfo{{}, queueFamilyIndex, 1, &queuePriority};
@@ -278,7 +278,7 @@ inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
                                               uint32_t queueFamilyIndex,
                                               uint32_t width,
                                               uint32_t height) {
-    std::cout << "Create Swap Chain" << std::endl;
+    std::cout << "Create swapchain\n";
 
     SwapChainSupportDetails swapchainSupport = querySwapChainSupport(physicalDevice, surface);
 
@@ -317,22 +317,18 @@ inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
 inline uint32_t getMemoryType(vk::PhysicalDevice physicalDevice,
                               vk::MemoryRequirements memoryRequirements,
                               vk::MemoryPropertyFlags memoryProperties) {
-    uint32_t result = -1;
-
     auto physicalDeviceMemoryProperties = physicalDevice.getMemoryProperties();
     for (uint32_t i = 0; i < VK_MAX_MEMORY_TYPES; ++i) {
         if (memoryRequirements.memoryTypeBits & (1 << i)) {
             if ((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & memoryProperties) ==
                 memoryProperties) {
-                result = i;
-                break;
+                return i;
             }
         }
     }
-    if (result == -1) {
-        throw std::runtime_error("failed to get memory type index.");
-    }
-    return result;
+
+    std::cerr << "Failed to get memory type index.\n";
+    std::abort();
 }
 
 inline vk::UniqueCommandPool createCommandPool(vk::Device device, uint32_t queueFamilyIndex) {
@@ -342,23 +338,14 @@ inline vk::UniqueCommandPool createCommandPool(vk::Device device, uint32_t queue
     return device.createCommandPoolUnique(commandPoolCreateInfo);
 }
 
-inline vk::UniqueCommandBuffer createCommandBuffer(vk::Device device,
-                                                   vk::CommandPool commandPool,
-                                                   bool begin) {
+inline vk::UniqueCommandBuffer createCommandBuffer(vk::Device device, vk::CommandPool commandPool) {
     // リストで生成して最初の要素をmoveする
     std::vector<vk::UniqueCommandBuffer> commandBuffers =
         device.allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}
                                                 .setCommandPool(commandPool)
                                                 .setLevel(vk::CommandBufferLevel::ePrimary)
                                                 .setCommandBufferCount(1));
-    vk::UniqueCommandBuffer commandBuffer = std::move(commandBuffers.front());
-
-    if (begin) {
-        vk::CommandBufferBeginInfo beginInfo{};
-        commandBuffer->begin(&beginInfo);
-    }
-
-    return commandBuffer;
+    return std::move(commandBuffers.front());
 }
 
 inline std::vector<vk::UniqueCommandBuffer> createDrawCommandBuffers(vk::Device device,
@@ -374,8 +361,6 @@ inline std::vector<vk::UniqueCommandBuffer> createDrawCommandBuffers(vk::Device 
 inline void submitCommandBuffer(vk::Device device,
                                 vk::CommandBuffer commandBuffer,
                                 vk::Queue queue) {
-    commandBuffer.end();
-
     vk::UniqueFence fence = device.createFenceUnique({});
 
     queue.submit(vk::SubmitInfo{}.setCommandBuffers(commandBuffer), fence.get());
