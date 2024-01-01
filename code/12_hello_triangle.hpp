@@ -81,6 +81,8 @@ private:
     std::vector<vk::Fence> inFlightFences;
     std::vector<vk::Fence> imagesInFlight;
 
+    size_t currentFrame = 0;
+
     void initWindow()
     {
         glfwInit();
@@ -165,8 +167,8 @@ private:
         auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
 
         vkutils::setImageLayout(commandBuffer.get(), storageImage.image.get(),
-            vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral,
-            { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+                                vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral,
+                                { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 
         vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
     }
@@ -388,7 +390,7 @@ private:
         std::vector<vk::UniqueShaderModule> shaderModules;
 
         // Ray generation グループ
-        shaderModules.push_back(vkutils::createShaderModule(device.get(), "shaders/raygen.rgen.spv"));
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "raygen.rgen.spv"));
         shaderStages[shaderIndexRaygen] =
             vk::PipelineShaderStageCreateInfo{}
             .setStage(vk::ShaderStageFlagBits::eRaygenKHR)
@@ -404,7 +406,7 @@ private:
         );
 
         // Ray miss グループ
-        shaderModules.push_back(vkutils::createShaderModule(device.get(), "shaders/miss.rmiss.spv"));
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "miss.rmiss.spv"));
         shaderStages[shaderIndexMiss] =
             vk::PipelineShaderStageCreateInfo{}
             .setStage(vk::ShaderStageFlagBits::eMissKHR)
@@ -420,7 +422,7 @@ private:
         );
 
         // Ray closest hit グループ
-        shaderModules.push_back(vkutils::createShaderModule(device.get(), "shaders/closesthit.rchit.spv"));
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "closesthit.rchit.spv"));
         shaderStages[shaderIndexClosestHit] =
             vk::PipelineShaderStageCreateInfo{}
             .setStage(vk::ShaderStageFlagBits::eClosestHitKHR)
@@ -437,11 +439,11 @@ private:
 
         // レイトレーシングパイプラインを作成する
         auto result = device->createRayTracingPipelineKHRUnique(nullptr, nullptr,
-            vk::RayTracingPipelineCreateInfoKHR{}
-            .setStages(shaderStages)
-            .setGroups(shaderGroups)
-            .setMaxPipelineRayRecursionDepth(1)
-            .setLayout(pipelineLayout.get())
+                                                                vk::RayTracingPipelineCreateInfoKHR{}
+                                                                .setStages(shaderStages)
+                                                                .setGroups(shaderGroups)
+                                                                .setMaxPipelineRayRecursionDepth(1)
+                                                                .setLayout(pipelineLayout.get())
         );
         if (result.result == vk::Result::eSuccess) {
             pipeline = std::move(result.value);
@@ -588,11 +590,11 @@ private:
 
             // スワップチェインの画像を送信先に設定
             vkutils::setImageLayout(drawCommandBuffers[i].get(), swapChainImages[i],
-                vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, subresourceRange);
+                                    vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, subresourceRange);
 
             // レイトレの出力を送信元に設定
             vkutils::setImageLayout(drawCommandBuffers[i].get(), storageImage.image.get(),
-                vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferSrcOptimal, subresourceRange);
+                                    vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferSrcOptimal, subresourceRange);
 
             // コピー
             vk::ImageCopy copyRegion{};
@@ -612,11 +614,11 @@ private:
 
             // スワップチェインの画像を提示用に設定
             vkutils::setImageLayout(drawCommandBuffers[i].get(), swapChainImages[i],
-                vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR, subresourceRange);
+                                    vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR, subresourceRange);
 
             // レイトレの出力をGeneralに設定
             vkutils::setImageLayout(drawCommandBuffers[i].get(), storageImage.image.get(),
-                vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral, subresourceRange);
+                                    vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral, subresourceRange);
 
             drawCommandBuffers[i]->end();
         }
@@ -634,6 +636,54 @@ private:
             renderFinishedSemaphores[i] = device->createSemaphoreUnique({});
             inFlightFences[i] = device->createFence({ vk::FenceCreateFlagBits::eSignaled });
         }
+    }
+
+    void drawFrame()
+    {
+        device->waitForFences(inFlightFences[currentFrame], true, std::numeric_limits<uint64_t>::max());
+
+        // 次に表示する画像のインデックスをスワップチェインから取得する
+        auto result = device->acquireNextImageKHR(
+            swapChain.get(),                             // swapchain
+            std::numeric_limits<uint64_t>::max(),        // timeout
+            imageAvailableSemaphores[currentFrame].get() // semaphore
+        );
+        uint32_t imageIndex;
+        if (result.result == vk::Result::eSuccess) {
+            imageIndex = result.value;
+        } else {
+            throw std::runtime_error("failed to acquire next image!");
+        }
+
+        // 前のフレームがこの画像を使用している場合は待機する
+        if (imagesInFlight[imageIndex]) {
+            device->waitForFences(imagesInFlight[imageIndex], true, std::numeric_limits<uint64_t>::max());
+        }
+        // 現在フレームで使用中の画像をマークする
+        imagesInFlight[imageIndex] = inFlightFences[currentFrame];
+
+        device->resetFences(inFlightFences[currentFrame]);
+
+        // レイトレーシングを行うコマンドバッファを実行する
+        vk::PipelineStageFlags waitStage{ vk::PipelineStageFlagBits::eRayTracingShaderKHR };
+        graphicsQueue.submit(
+            vk::SubmitInfo{}
+            .setWaitSemaphores(imageAvailableSemaphores[currentFrame].get())
+            .setWaitDstStageMask(waitStage)
+            .setCommandBuffers(drawCommandBuffers[imageIndex].get())
+            .setSignalSemaphores(renderFinishedSemaphores[currentFrame].get()),
+            inFlightFences[currentFrame]
+        );
+
+        // 表示する
+        graphicsQueue.presentKHR(
+            vk::PresentInfoKHR{}
+            .setWaitSemaphores(renderFinishedSemaphores[currentFrame].get())
+            .setSwapchains(swapChain.get())
+            .setImageIndices(imageIndex)
+        );
+
+        currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
     Buffer createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryPropertiy, void* data = nullptr)
@@ -690,7 +740,7 @@ private:
             vk::BufferCreateInfo{}
             .setSize(buildSizesInfo.accelerationStructureSize)
             .setUsage(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR
-                | vk::BufferUsageFlagBits::eShaderDeviceAddress)
+                      | vk::BufferUsageFlagBits::eShaderDeviceAddress)
         );
 
         // メモリを確保してバインドする
@@ -743,7 +793,9 @@ private:
     {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+            drawFrame();
         }
+        device->waitIdle();
     }
 
     void cleanup()
@@ -757,16 +809,3 @@ private:
     }
 };
 
-int main()
-{
-    Application app;
-
-    try {
-        app.run();
-    } catch (const std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    return EXIT_SUCCESS;
-}

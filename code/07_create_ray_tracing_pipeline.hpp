@@ -3,7 +3,6 @@
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
-const int MAX_FRAMES_IN_FLIGHT = 2;
 
 struct StorageImage
 {
@@ -69,19 +68,6 @@ private:
     vk::UniqueDescriptorSetLayout descriptorSetLayout;
 
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
-    Buffer raygenShaderBindingTable;
-    Buffer missShaderBindingTable;
-    Buffer hitShaderBindingTable;
-
-    vk::UniqueDescriptorPool descriptorPool;
-    vk::UniqueDescriptorSet descriptorSet;
-
-    std::vector<vk::UniqueSemaphore> imageAvailableSemaphores;
-    std::vector<vk::UniqueSemaphore> renderFinishedSemaphores;
-    std::vector<vk::Fence> inFlightFences;
-    std::vector<vk::Fence> imagesInFlight;
-
-    size_t currentFrame = 0;
 
     void initWindow()
     {
@@ -121,11 +107,6 @@ private:
         createTopLevelAS();
 
         createRayTracingPipeLine();
-        createShaderBindingTable();
-        createDescriptorSets();
-        buildCommandBuffers();
-        createSyncObjects();
-
     }
 
     void createStorageImage()
@@ -390,7 +371,7 @@ private:
         std::vector<vk::UniqueShaderModule> shaderModules;
 
         // Ray generation グループ
-        shaderModules.push_back(vkutils::createShaderModule(device.get(), "shaders/raygen.rgen.spv"));
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "raygen.rgen.spv"));
         shaderStages[shaderIndexRaygen] =
             vk::PipelineShaderStageCreateInfo{}
             .setStage(vk::ShaderStageFlagBits::eRaygenKHR)
@@ -406,7 +387,7 @@ private:
         );
 
         // Ray miss グループ
-        shaderModules.push_back(vkutils::createShaderModule(device.get(), "shaders/miss.rmiss.spv"));
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "miss.rmiss.spv"));
         shaderStages[shaderIndexMiss] =
             vk::PipelineShaderStageCreateInfo{}
             .setStage(vk::ShaderStageFlagBits::eMissKHR)
@@ -422,7 +403,7 @@ private:
         );
 
         // Ray closest hit グループ
-        shaderModules.push_back(vkutils::createShaderModule(device.get(), "shaders/closesthit.rchit.spv"));
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "closesthit.rchit.spv"));
         shaderStages[shaderIndexClosestHit] =
             vk::PipelineShaderStageCreateInfo{}
             .setStage(vk::ShaderStageFlagBits::eClosestHitKHR)
@@ -450,240 +431,6 @@ private:
         } else {
             throw std::runtime_error("failed to create ray tracing pipeline.");
         }
-    }
-
-    void createShaderBindingTable()
-    {
-        const uint32_t handleSize = vkutils::getShaderGroupHandleSize();
-        const uint32_t handleSizeAligned = vkutils::getHandleSizeAligned();
-        const uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
-        const uint32_t sbtSize = groupCount * handleSizeAligned;
-
-        const vk::BufferUsageFlags sbtBufferUsafgeFlags = vk::BufferUsageFlagBits::eShaderBindingTableKHR
-            | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eShaderDeviceAddress;
-
-        const vk::MemoryPropertyFlags sbtMemoryProperty =
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
-
-        // シェーダグループのハンドルを取得する
-        std::vector<uint8_t> shaderHandleStorage(sbtSize);
-        auto result = device->getRayTracingShaderGroupHandlesKHR(pipeline.get(), 0, groupCount, static_cast<size_t>(sbtSize), shaderHandleStorage.data());
-        if (result != vk::Result::eSuccess) {
-            throw std::runtime_error("failed to get ray tracing shader group handles.");
-        }
-
-        // シェーダタイプごとにバインディングテーブルバッファを作成する
-        raygenShaderBindingTable = createBuffer(handleSize, sbtBufferUsafgeFlags, sbtMemoryProperty, shaderHandleStorage.data() + 0 * handleSizeAligned);
-        missShaderBindingTable = createBuffer(handleSize, sbtBufferUsafgeFlags, sbtMemoryProperty, shaderHandleStorage.data() + 1 * handleSizeAligned);
-        hitShaderBindingTable = createBuffer(handleSize, sbtBufferUsafgeFlags, sbtMemoryProperty, shaderHandleStorage.data() + 2 * handleSizeAligned);
-    }
-
-    void createDescriptorSets()
-    {
-        // まずはディスクリプタプールを用意する
-        std::vector<vk::DescriptorPoolSize> poolSizes = {
-            {vk::DescriptorType::eAccelerationStructureKHR, 1},
-            {vk::DescriptorType::eStorageImage, 1}
-        };
-
-        descriptorPool = device->createDescriptorPoolUnique(
-            vk::DescriptorPoolCreateInfo{}
-            .setPoolSizes(poolSizes)
-            .setMaxSets(1)
-            .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        );
-
-        // ディスクリプタセットを1つ準備する
-        auto descriptorSets = device->allocateDescriptorSetsUnique(
-            vk::DescriptorSetAllocateInfo{}
-            .setDescriptorPool(descriptorPool.get())
-            .setSetLayouts(descriptorSetLayout.get())
-        );
-        descriptorSet = std::move(descriptorSets.front());
-
-        // Top Level ASをシェーダにバインドするためのディスクリプタ
-        vk::WriteDescriptorSetAccelerationStructureKHR descriptorAccelerationStructureInfo{};
-        descriptorAccelerationStructureInfo
-            .setAccelerationStructures(tlas.handle.get());
-
-        vk::WriteDescriptorSet accelerationStructureWrite{};
-        accelerationStructureWrite
-            .setDstSet(descriptorSet.get())
-            .setDstBinding(0)
-            .setDescriptorCount(1)
-            .setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR)
-            .setPNext(&descriptorAccelerationStructureInfo);
-
-        // Storage imageのためのディスクリプタ
-        vk::DescriptorImageInfo imageDescriptor{};
-        imageDescriptor
-            .setImageView(storageImage.view.get())
-            .setImageLayout(vk::ImageLayout::eGeneral);
-
-        vk::WriteDescriptorSet resultImageWrite{};
-        resultImageWrite
-            .setDstSet(descriptorSet.get())
-            .setDescriptorType(vk::DescriptorType::eStorageImage)
-            .setDstBinding(1)
-            .setImageInfo(imageDescriptor);
-
-        device->updateDescriptorSets({ accelerationStructureWrite, resultImageWrite }, nullptr);
-    }
-
-    void buildCommandBuffers()
-    {
-        vk::ImageSubresourceRange subresourceRange{};
-        subresourceRange
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1);
-
-        for (int32_t i = 0; i < drawCommandBuffers.size(); ++i) {
-            drawCommandBuffers[i]->begin(
-                vk::CommandBufferBeginInfo{}
-            );
-
-            const uint32_t handleSizeAligned = vkutils::getHandleSizeAligned();
-
-            vk::StridedDeviceAddressRegionKHR raygenShaderSbtEntry{};
-            raygenShaderSbtEntry
-                .setDeviceAddress(raygenShaderBindingTable.deviceAddress)
-                .setStride(handleSizeAligned)
-                .setSize(handleSizeAligned);
-
-            vk::StridedDeviceAddressRegionKHR missShaderSbtEntry{};
-            missShaderSbtEntry
-                .setDeviceAddress(missShaderBindingTable.deviceAddress)
-                .setStride(handleSizeAligned)
-                .setSize(handleSizeAligned);
-
-            vk::StridedDeviceAddressRegionKHR hitShaderSbtEntry{};
-            hitShaderSbtEntry
-                .setDeviceAddress(hitShaderBindingTable.deviceAddress)
-                .setStride(handleSizeAligned)
-                .setSize(handleSizeAligned);
-
-            drawCommandBuffers[i]->bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, pipeline.get());
-
-            drawCommandBuffers[i]->bindDescriptorSets(
-                vk::PipelineBindPoint::eRayTracingKHR, // pipelineBindPoint
-                pipelineLayout.get(),                  // layout
-                0,                                     // firstSet
-                descriptorSet.get(),                   // descriptorSets
-                nullptr                                // dynamicOffsets
-            );
-
-            // レイトレーシングを実行
-            drawCommandBuffers[i]->traceRaysKHR(
-                raygenShaderSbtEntry, // raygenShaderBindingTable
-                missShaderSbtEntry,   // missShaderBindingTable
-                hitShaderSbtEntry,    // hitShaderBindingTable
-                {},                   // callableShaderBindingTable
-                storageImage.width,   // width
-                storageImage.height,  // height
-                1                     // depth
-            );
-
-            // レイトレーシングで出力した画像をスワップチェインの画像にコピーする
-
-            // スワップチェインの画像を送信先に設定
-            vkutils::setImageLayout(drawCommandBuffers[i].get(), swapChainImages[i],
-                vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, subresourceRange);
-
-            // レイトレの出力を送信元に設定
-            vkutils::setImageLayout(drawCommandBuffers[i].get(), storageImage.image.get(),
-                vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferSrcOptimal, subresourceRange);
-
-            // コピー
-            vk::ImageCopy copyRegion{};
-            copyRegion
-                .setSrcSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 })
-                .setSrcOffset({ 0, 0, 0 })
-                .setDstSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 })
-                .setDstOffset({ 0, 0, 0 })
-                .setExtent({ storageImage.width, storageImage.height, 1 });
-            drawCommandBuffers[i]->copyImage(
-                storageImage.image.get(),             // srcImage
-                vk::ImageLayout::eTransferSrcOptimal, // srcImageLayout
-                swapChainImages[i],                   // dstImage
-                vk::ImageLayout::eTransferDstOptimal, // dstImageLayout
-                copyRegion                            // regions
-            );
-
-            // スワップチェインの画像を提示用に設定
-            vkutils::setImageLayout(drawCommandBuffers[i].get(), swapChainImages[i],
-                vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR, subresourceRange);
-
-            // レイトレの出力をGeneralに設定
-            vkutils::setImageLayout(drawCommandBuffers[i].get(), storageImage.image.get(),
-                vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral, subresourceRange);
-
-            drawCommandBuffers[i]->end();
-        }
-    }
-
-    void createSyncObjects()
-    {
-        imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-        renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-        inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
-        imagesInFlight.resize(swapChainImages.size());
-
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            imageAvailableSemaphores[i] = device->createSemaphoreUnique({});
-            renderFinishedSemaphores[i] = device->createSemaphoreUnique({});
-            inFlightFences[i] = device->createFence({ vk::FenceCreateFlagBits::eSignaled });
-        }
-    }
-
-    void drawFrame()
-    {
-        device->waitForFences(inFlightFences[currentFrame], true, std::numeric_limits<uint64_t>::max());
-
-        // 次に表示する画像のインデックスをスワップチェインから取得する
-        auto result = device->acquireNextImageKHR(
-            swapChain.get(),                             // swapchain
-            std::numeric_limits<uint64_t>::max(),        // timeout
-            imageAvailableSemaphores[currentFrame].get() // semaphore
-        );
-        uint32_t imageIndex;
-        if (result.result == vk::Result::eSuccess) {
-            imageIndex = result.value;
-        } else {
-            throw std::runtime_error("failed to acquire next image!");
-        }
-
-        // 前のフレームがこの画像を使用している場合は待機する
-        if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
-            device->waitForFences(imagesInFlight[imageIndex], true, std::numeric_limits<uint64_t>::max());
-        }
-        // 現在フレームで使用中の画像をマークする
-        imagesInFlight[imageIndex] = inFlightFences[currentFrame];
-
-        device->resetFences(inFlightFences[currentFrame]);
-
-        // レイトレーシングを行うコマンドバッファを実行する
-        vk::PipelineStageFlags waitStage{ vk::PipelineStageFlagBits::eRayTracingShaderKHR };
-        graphicsQueue.submit(
-            vk::SubmitInfo{}
-            .setWaitSemaphores(imageAvailableSemaphores[currentFrame].get())
-            .setWaitDstStageMask(waitStage)
-            .setCommandBuffers(drawCommandBuffers[imageIndex].get())
-            .setSignalSemaphores(renderFinishedSemaphores[currentFrame].get()),
-            inFlightFences[currentFrame]
-        );
-
-        // 表示する
-        graphicsQueue.presentKHR(
-            vk::PresentInfoKHR{}
-            .setWaitSemaphores(renderFinishedSemaphores[currentFrame].get())
-            .setSwapchains(swapChain.get())
-            .setImageIndices(imageIndex)
-        );
-
-        currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
     Buffer createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryPropertiy, void* data = nullptr)
@@ -793,32 +540,12 @@ private:
     {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
-            drawFrame();
         }
-        device->waitIdle();
     }
 
     void cleanup()
     {
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            device->destroyFence(inFlightFences[i]);
-        }
-
         glfwDestroyWindow(window);
         glfwTerminate();
     }
 };
-
-int main()
-{
-    Application app;
-
-    try {
-        app.run();
-    } catch (const std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    return EXIT_SUCCESS;
-}

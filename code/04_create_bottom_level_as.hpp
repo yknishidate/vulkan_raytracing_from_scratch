@@ -61,7 +61,6 @@ private:
     StorageImage storageImage;
 
     AccelerationStructure blas;
-    AccelerationStructure tlas;
 
     void initWindow()
     {
@@ -98,7 +97,6 @@ private:
 
         createStorageImage();
         createBottomLevelAS();
-        createTopLevelAS();
     }
 
     void createStorageImage()
@@ -203,123 +201,6 @@ private:
             .setSize(buildSizesInfo.accelerationStructureSize)
             .setType(vk::AccelerationStructureTypeKHR::eBottomLevel)
         );
-
-        // ここから実際のビルドを行っていく
-
-        // スクラッチバッファを作成する
-        Buffer scratchBuffer = createScratchBuffer(buildSizesInfo.buildScratchSize);
-
-        // ビルド情報を作成する
-        vk::AccelerationStructureBuildGeometryInfoKHR accelerationBuildGeometryInfo{};
-        accelerationBuildGeometryInfo
-            .setType(vk::AccelerationStructureTypeKHR::eBottomLevel)
-            .setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
-            .setMode(vk::BuildAccelerationStructureModeKHR::eBuild)
-            .setDstAccelerationStructure(blas.handle.get())
-            .setGeometries(geometry)
-            .setScratchData(scratchBuffer.deviceAddress);
-
-        vk::AccelerationStructureBuildRangeInfoKHR accelerationStructureBuildRangeInfo{};
-        accelerationStructureBuildRangeInfo
-            .setPrimitiveCount(1)
-            .setPrimitiveOffset(0)
-            .setFirstVertex(0)
-            .setTransformOffset(0);
-
-        // ビルドコマンドを送信してデバイス上でASをビルドする
-        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
-        commandBuffer->buildAccelerationStructuresKHR(accelerationBuildGeometryInfo, &accelerationStructureBuildRangeInfo);
-        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
-
-        // Bottom Level AS のハンドルを取得する
-        blas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({ blas.handle.get() });
-    }
-
-    void createTopLevelAS()
-    {
-        VkTransformMatrixKHR transformMatrix = {
-            1.0f, 0.0f, 0.0f, 0.0f,
-            0.0f, 1.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 1.0f, 0.0f };
-
-        vk::AccelerationStructureInstanceKHR accelerationStructureInstance{};
-        accelerationStructureInstance
-            .setTransform(transformMatrix)
-            .setInstanceCustomIndex(0)
-            .setMask(0xFF)
-            .setInstanceShaderBindingTableRecordOffset(0)
-            .setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable)
-            .setAccelerationStructureReference(blas.buffer.deviceAddress);
-
-        Buffer instancesBuffer = createBuffer(
-            sizeof(vk::AccelerationStructureInstanceKHR),
-            vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR
-            | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-            &accelerationStructureInstance);
-
-        // Bottom Level ASを入力としてセットする
-        vk::AccelerationStructureGeometryInstancesDataKHR instancesData{};
-        instancesData
-            .setArrayOfPointers(false)
-            .setData(instancesBuffer.deviceAddress);
-
-        vk::AccelerationStructureGeometryKHR geometry{};
-        geometry
-            .setGeometryType(vk::GeometryTypeKHR::eInstances)
-            .setGeometry({ instancesData })
-            .setFlags(vk::GeometryFlagBitsKHR::eOpaque);
-
-        // ASビルドに必要なサイズを取得する
-        vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo{};
-        buildGeometryInfo
-            .setType(vk::AccelerationStructureTypeKHR::eTopLevel)
-            .setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
-            .setGeometries(geometry);
-
-        const uint32_t primitiveCount = 1;
-        auto buildSizesInfo = device->getAccelerationStructureBuildSizesKHR(
-            vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
-
-        // ASを保持するためのバッファを作成する
-        tlas.buffer = createAccelerationStructureBuffer(buildSizesInfo);
-
-        // ASを作成する
-        tlas.handle = device->createAccelerationStructureKHRUnique(
-            vk::AccelerationStructureCreateInfoKHR{}
-            .setBuffer(tlas.buffer.handle.get())
-            .setSize(buildSizesInfo.accelerationStructureSize)
-            .setType(vk::AccelerationStructureTypeKHR::eTopLevel)
-        );
-
-        // ここから実際のビルドを行っていく
-
-        // スクラッチバッファを作成する
-        Buffer scratchBuffer = createScratchBuffer(buildSizesInfo.buildScratchSize);
-
-        // ビルド情報を作成する
-        vk::AccelerationStructureBuildGeometryInfoKHR accelerationBuildGeometryInfo{};
-        accelerationBuildGeometryInfo
-            .setType(vk::AccelerationStructureTypeKHR::eTopLevel)
-            .setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
-            .setDstAccelerationStructure(tlas.handle.get())
-            .setGeometries(geometry)
-            .setScratchData(scratchBuffer.deviceAddress);
-
-        vk::AccelerationStructureBuildRangeInfoKHR accelerationStructureBuildRangeInfo{};
-        accelerationStructureBuildRangeInfo
-            .setPrimitiveCount(1)
-            .setPrimitiveOffset(0)
-            .setFirstVertex(0)
-            .setTransformOffset(0);
-
-        // ビルドコマンドを送信してデバイス上でASをビルドする
-        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
-        commandBuffer->buildAccelerationStructuresKHR(accelerationBuildGeometryInfo, &accelerationStructureBuildRangeInfo);
-        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
-
-        // Bottom Level AS のハンドルを取得する
-        tlas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({ tlas.handle.get() });
     }
 
     Buffer createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryPropertiy, void* data = nullptr)
@@ -395,36 +276,6 @@ private:
         return buffer;
     }
 
-    Buffer createScratchBuffer(vk::DeviceSize size)
-    {
-        Buffer scratchBuffer;
-
-        // バッファを作成する
-        scratchBuffer.handle = device->createBufferUnique(
-            vk::BufferCreateInfo{}
-            .setSize(size)
-            .setUsage(vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress)
-        );
-
-        // メモリを確保してバインドする
-        auto memoryRequirements = device->getBufferMemoryRequirements(scratchBuffer.handle.get());
-        vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{ vk::MemoryAllocateFlagBits::eDeviceAddress };
-
-        scratchBuffer.deviceMemory = device->allocateMemoryUnique(
-            vk::MemoryAllocateInfo{}
-            .setAllocationSize(memoryRequirements.size)
-            .setMemoryTypeIndex(vkutils::getMemoryType(memoryRequirements, vk::MemoryPropertyFlagBits::eDeviceLocal))
-            .setPNext(&memoryAllocateFlagsInfo)
-        );
-        device->bindBufferMemory(scratchBuffer.handle.get(), scratchBuffer.deviceMemory.get(), 0);
-
-        // バッファのデバイスアドレスを取得する
-        vk::BufferDeviceAddressInfoKHR bufferDeviceAddressInfo{ scratchBuffer.handle.get() };
-        scratchBuffer.deviceAddress = getBufferDeviceAddress(scratchBuffer.handle.get());
-
-        return scratchBuffer;
-    }
-
     void mainLoop()
     {
         while (!glfwWindowShouldClose(window)) {
@@ -438,17 +289,3 @@ private:
         glfwTerminate();
     }
 };
-
-int main()
-{
-    Application app;
-
-    try {
-        app.run();
-    } catch (const std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    return EXIT_SUCCESS;
-}

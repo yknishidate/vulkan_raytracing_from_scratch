@@ -61,6 +61,16 @@ private:
     StorageImage storageImage;
 
     AccelerationStructure blas;
+    AccelerationStructure tlas;
+
+    vk::UniquePipeline pipeline;
+    vk::UniquePipelineLayout pipelineLayout;
+    vk::UniqueDescriptorSetLayout descriptorSetLayout;
+
+    std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
+    Buffer raygenShaderBindingTable;
+    Buffer missShaderBindingTable;
+    Buffer hitShaderBindingTable;
 
     void initWindow()
     {
@@ -97,6 +107,11 @@ private:
 
         createStorageImage();
         createBottomLevelAS();
+        createTopLevelAS();
+
+        createRayTracingPipeLine();
+        createShaderBindingTable();
+
     }
 
     void createStorageImage()
@@ -233,6 +248,222 @@ private:
         blas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({ blas.handle.get() });
     }
 
+    void createTopLevelAS()
+    {
+        VkTransformMatrixKHR transformMatrix = {
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f };
+
+        vk::AccelerationStructureInstanceKHR accelerationStructureInstance{};
+        accelerationStructureInstance
+            .setTransform(transformMatrix)
+            .setInstanceCustomIndex(0)
+            .setMask(0xFF)
+            .setInstanceShaderBindingTableRecordOffset(0)
+            .setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable)
+            .setAccelerationStructureReference(blas.buffer.deviceAddress);
+
+        Buffer instancesBuffer = createBuffer(
+            sizeof(vk::AccelerationStructureInstanceKHR),
+            vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR
+            | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+            &accelerationStructureInstance);
+
+        // Bottom Level ASを入力としてセットする
+        vk::AccelerationStructureGeometryInstancesDataKHR instancesData{};
+        instancesData
+            .setArrayOfPointers(false)
+            .setData(instancesBuffer.deviceAddress);
+
+        vk::AccelerationStructureGeometryKHR geometry{};
+        geometry
+            .setGeometryType(vk::GeometryTypeKHR::eInstances)
+            .setGeometry({ instancesData })
+            .setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+
+        // ASビルドに必要なサイズを取得する
+        vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo{};
+        buildGeometryInfo
+            .setType(vk::AccelerationStructureTypeKHR::eTopLevel)
+            .setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
+            .setGeometries(geometry);
+
+        const uint32_t primitiveCount = 1;
+        auto buildSizesInfo = device->getAccelerationStructureBuildSizesKHR(
+            vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
+
+        // ASを保持するためのバッファを作成する
+        tlas.buffer = createAccelerationStructureBuffer(buildSizesInfo);
+
+        // ASを作成する
+        tlas.handle = device->createAccelerationStructureKHRUnique(
+            vk::AccelerationStructureCreateInfoKHR{}
+            .setBuffer(tlas.buffer.handle.get())
+            .setSize(buildSizesInfo.accelerationStructureSize)
+            .setType(vk::AccelerationStructureTypeKHR::eTopLevel)
+        );
+
+        // ここから実際のビルドを行っていく
+
+        // スクラッチバッファを作成する
+        Buffer scratchBuffer = createScratchBuffer(buildSizesInfo.buildScratchSize);
+
+        // ビルド情報を作成する
+        vk::AccelerationStructureBuildGeometryInfoKHR accelerationBuildGeometryInfo{};
+        accelerationBuildGeometryInfo
+            .setType(vk::AccelerationStructureTypeKHR::eTopLevel)
+            .setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
+            .setDstAccelerationStructure(tlas.handle.get())
+            .setGeometries(geometry)
+            .setScratchData(scratchBuffer.deviceAddress);
+
+        vk::AccelerationStructureBuildRangeInfoKHR accelerationStructureBuildRangeInfo{};
+        accelerationStructureBuildRangeInfo
+            .setPrimitiveCount(1)
+            .setPrimitiveOffset(0)
+            .setFirstVertex(0)
+            .setTransformOffset(0);
+
+        // ビルドコマンドを送信してデバイス上でASをビルドする
+        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
+        commandBuffer->buildAccelerationStructuresKHR(accelerationBuildGeometryInfo, &accelerationStructureBuildRangeInfo);
+        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
+
+        // Bottom Level AS のハンドルを取得する
+        tlas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({ tlas.handle.get() });
+    }
+
+    void createRayTracingPipeLine()
+    {
+        // Top Level ASをRaygenシェーダにバインドするための設定 [0]
+        vk::DescriptorSetLayoutBinding accelerationStructureLayoutBinding{};
+        accelerationStructureLayoutBinding
+            .setBinding(0)
+            .setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR)
+            .setDescriptorCount(1)
+            .setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
+
+        // StorageImageをRaygenシェーダにバインドするための設定 [1]
+        vk::DescriptorSetLayoutBinding resultImageLayoutBinding{};
+        resultImageLayoutBinding
+            .setBinding(1)
+            .setDescriptorType(vk::DescriptorType::eStorageImage)
+            .setDescriptorCount(1)
+            .setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
+
+        // ディスクリプタセットレイアウトを作成する
+        std::vector<vk::DescriptorSetLayoutBinding> binding{ accelerationStructureLayoutBinding, resultImageLayoutBinding };
+        descriptorSetLayout = device->createDescriptorSetLayoutUnique(
+            vk::DescriptorSetLayoutCreateInfo{}
+            .setBindings(binding)
+        );
+
+        // パイプラインレイアウトを作成する
+        pipelineLayout = device->createPipelineLayoutUnique(
+            vk::PipelineLayoutCreateInfo{}
+            .setSetLayouts(descriptorSetLayout.get())
+        );
+
+        // レイトレーシングシェーダグループの設定
+        // 各シェーダグループはパイプライン内の対応するシェーダを指す
+        std::array<vk::PipelineShaderStageCreateInfo, 3> shaderStages;
+        const uint32_t shaderIndexRaygen = 0;
+        const uint32_t shaderIndexMiss = 1;
+        const uint32_t shaderIndexClosestHit = 2;
+
+        std::vector<vk::UniqueShaderModule> shaderModules;
+
+        // Ray generation グループ
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "raygen.rgen.spv"));
+        shaderStages[shaderIndexRaygen] =
+            vk::PipelineShaderStageCreateInfo{}
+            .setStage(vk::ShaderStageFlagBits::eRaygenKHR)
+            .setModule(shaderModules.back().get())
+            .setPName("main");
+        shaderGroups.push_back(
+            vk::RayTracingShaderGroupCreateInfoKHR{}
+            .setType(vk::RayTracingShaderGroupTypeKHR::eGeneral)
+            .setGeneralShader(shaderIndexRaygen)
+            .setClosestHitShader(VK_SHADER_UNUSED_KHR)
+            .setAnyHitShader(VK_SHADER_UNUSED_KHR)
+            .setIntersectionShader(VK_SHADER_UNUSED_KHR)
+        );
+
+        // Ray miss グループ
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "miss.rmiss.spv"));
+        shaderStages[shaderIndexMiss] =
+            vk::PipelineShaderStageCreateInfo{}
+            .setStage(vk::ShaderStageFlagBits::eMissKHR)
+            .setModule(shaderModules.back().get())
+            .setPName("main");
+        shaderGroups.push_back(
+            vk::RayTracingShaderGroupCreateInfoKHR{}
+            .setType(vk::RayTracingShaderGroupTypeKHR::eGeneral)
+            .setGeneralShader(shaderIndexMiss)
+            .setClosestHitShader(VK_SHADER_UNUSED_KHR)
+            .setAnyHitShader(VK_SHADER_UNUSED_KHR)
+            .setIntersectionShader(VK_SHADER_UNUSED_KHR)
+        );
+
+        // Ray closest hit グループ
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "closesthit.rchit.spv"));
+        shaderStages[shaderIndexClosestHit] =
+            vk::PipelineShaderStageCreateInfo{}
+            .setStage(vk::ShaderStageFlagBits::eClosestHitKHR)
+            .setModule(shaderModules.back().get())
+            .setPName("main");
+        shaderGroups.push_back(
+            vk::RayTracingShaderGroupCreateInfoKHR{}
+            .setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup)
+            .setGeneralShader(VK_SHADER_UNUSED_KHR)
+            .setClosestHitShader(shaderIndexClosestHit)
+            .setAnyHitShader(VK_SHADER_UNUSED_KHR)
+            .setIntersectionShader(VK_SHADER_UNUSED_KHR)
+        );
+
+        // レイトレーシングパイプラインを作成する
+        auto result = device->createRayTracingPipelineKHRUnique(nullptr, nullptr,
+            vk::RayTracingPipelineCreateInfoKHR{}
+            .setStages(shaderStages)
+            .setGroups(shaderGroups)
+            .setMaxPipelineRayRecursionDepth(1)
+            .setLayout(pipelineLayout.get())
+        );
+        if (result.result == vk::Result::eSuccess) {
+            pipeline = std::move(result.value);
+        } else {
+            throw std::runtime_error("failed to create ray tracing pipeline.");
+        }
+    }
+
+    void createShaderBindingTable()
+    {
+        const uint32_t handleSize = vkutils::getShaderGroupHandleSize();
+        const uint32_t handleSizeAligned = vkutils::getHandleSizeAligned();
+        const uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
+        const uint32_t sbtSize = groupCount * handleSizeAligned;
+
+        const vk::BufferUsageFlags sbtBufferUsafgeFlags = vk::BufferUsageFlagBits::eShaderBindingTableKHR
+            | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eShaderDeviceAddress;
+
+        const vk::MemoryPropertyFlags sbtMemoryProperty =
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
+
+        // シェーダグループのハンドルを取得する
+        std::vector<uint8_t> shaderHandleStorage(sbtSize);
+        auto result = device->getRayTracingShaderGroupHandlesKHR(pipeline.get(), 0, groupCount, static_cast<size_t>(sbtSize), shaderHandleStorage.data());
+        if (result != vk::Result::eSuccess) {
+            throw std::runtime_error("failed to get ray tracing shader group handles.");
+        }
+
+        // シェーダタイプごとにバインディングテーブルバッファを作成する
+        raygenShaderBindingTable = createBuffer(handleSize, sbtBufferUsafgeFlags, sbtMemoryProperty, shaderHandleStorage.data() + 0 * handleSizeAligned);
+        missShaderBindingTable = createBuffer(handleSize, sbtBufferUsafgeFlags, sbtMemoryProperty, shaderHandleStorage.data() + 1 * handleSizeAligned);
+        hitShaderBindingTable = createBuffer(handleSize, sbtBufferUsafgeFlags, sbtMemoryProperty, shaderHandleStorage.data() + 2 * handleSizeAligned);
+    }
+
     Buffer createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryPropertiy, void* data = nullptr)
     {
         // Bufferオブジェクトを作成
@@ -349,17 +580,3 @@ private:
         glfwTerminate();
     }
 };
-
-int main()
-{
-    Application app;
-
-    try {
-        app.run();
-    } catch (const std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    return EXIT_SUCCESS;
-}

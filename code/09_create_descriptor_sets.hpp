@@ -68,6 +68,12 @@ private:
     vk::UniqueDescriptorSetLayout descriptorSetLayout;
 
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
+    Buffer raygenShaderBindingTable;
+    Buffer missShaderBindingTable;
+    Buffer hitShaderBindingTable;
+
+    vk::UniqueDescriptorPool descriptorPool;
+    vk::UniqueDescriptorSet descriptorSet;
 
     void initWindow()
     {
@@ -107,6 +113,9 @@ private:
         createTopLevelAS();
 
         createRayTracingPipeLine();
+        createShaderBindingTable();
+        createDescriptorSets();
+
     }
 
     void createStorageImage()
@@ -371,7 +380,7 @@ private:
         std::vector<vk::UniqueShaderModule> shaderModules;
 
         // Ray generation グループ
-        shaderModules.push_back(vkutils::createShaderModule(device.get(), "shaders/raygen.rgen.spv"));
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "raygen.rgen.spv"));
         shaderStages[shaderIndexRaygen] =
             vk::PipelineShaderStageCreateInfo{}
             .setStage(vk::ShaderStageFlagBits::eRaygenKHR)
@@ -387,7 +396,7 @@ private:
         );
 
         // Ray miss グループ
-        shaderModules.push_back(vkutils::createShaderModule(device.get(), "shaders/miss.rmiss.spv"));
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "miss.rmiss.spv"));
         shaderStages[shaderIndexMiss] =
             vk::PipelineShaderStageCreateInfo{}
             .setStage(vk::ShaderStageFlagBits::eMissKHR)
@@ -403,7 +412,7 @@ private:
         );
 
         // Ray closest hit グループ
-        shaderModules.push_back(vkutils::createShaderModule(device.get(), "shaders/closesthit.rchit.spv"));
+        shaderModules.push_back(vkutils::createShaderModule(device.get(), SHADER_DIR + "closesthit.rchit.spv"));
         shaderStages[shaderIndexClosestHit] =
             vk::PipelineShaderStageCreateInfo{}
             .setStage(vk::ShaderStageFlagBits::eClosestHitKHR)
@@ -431,6 +440,84 @@ private:
         } else {
             throw std::runtime_error("failed to create ray tracing pipeline.");
         }
+    }
+
+    void createShaderBindingTable()
+    {
+        const uint32_t handleSize = vkutils::getShaderGroupHandleSize();
+        const uint32_t handleSizeAligned = vkutils::getHandleSizeAligned();
+        const uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
+        const uint32_t sbtSize = groupCount * handleSizeAligned;
+
+        const vk::BufferUsageFlags sbtBufferUsafgeFlags = vk::BufferUsageFlagBits::eShaderBindingTableKHR
+            | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eShaderDeviceAddress;
+
+        const vk::MemoryPropertyFlags sbtMemoryProperty =
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
+
+        // シェーダグループのハンドルを取得する
+        std::vector<uint8_t> shaderHandleStorage(sbtSize);
+        auto result = device->getRayTracingShaderGroupHandlesKHR(pipeline.get(), 0, groupCount, static_cast<size_t>(sbtSize), shaderHandleStorage.data());
+        if (result != vk::Result::eSuccess) {
+            throw std::runtime_error("failed to get ray tracing shader group handles.");
+        }
+
+        // シェーダタイプごとにバインディングテーブルバッファを作成する
+        raygenShaderBindingTable = createBuffer(handleSize, sbtBufferUsafgeFlags, sbtMemoryProperty, shaderHandleStorage.data() + 0 * handleSizeAligned);
+        missShaderBindingTable = createBuffer(handleSize, sbtBufferUsafgeFlags, sbtMemoryProperty, shaderHandleStorage.data() + 1 * handleSizeAligned);
+        hitShaderBindingTable = createBuffer(handleSize, sbtBufferUsafgeFlags, sbtMemoryProperty, shaderHandleStorage.data() + 2 * handleSizeAligned);
+    }
+
+    void createDescriptorSets()
+    {
+        // まずはディスクリプタプールを用意する
+        std::vector<vk::DescriptorPoolSize> poolSizes = {
+            {vk::DescriptorType::eAccelerationStructureKHR, 1},
+            {vk::DescriptorType::eStorageImage, 1}
+        };
+
+        descriptorPool = device->createDescriptorPoolUnique(
+            vk::DescriptorPoolCreateInfo{}
+            .setPoolSizes(poolSizes)
+            .setMaxSets(1)
+            .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
+        );
+
+        // ディスクリプタセットを1つ準備する
+        auto descriptorSets = device->allocateDescriptorSetsUnique(
+            vk::DescriptorSetAllocateInfo{}
+            .setDescriptorPool(descriptorPool.get())
+            .setSetLayouts(descriptorSetLayout.get())
+        );
+        descriptorSet = std::move(descriptorSets.front());
+
+        // Top Level ASをシェーダにバインドするためのディスクリプタ
+        vk::WriteDescriptorSetAccelerationStructureKHR descriptorAccelerationStructureInfo{};
+        descriptorAccelerationStructureInfo
+            .setAccelerationStructures(tlas.handle.get());
+
+        vk::WriteDescriptorSet accelerationStructureWrite{};
+        accelerationStructureWrite
+            .setDstSet(descriptorSet.get())
+            .setDstBinding(0)
+            .setDescriptorCount(1)
+            .setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR)
+            .setPNext(&descriptorAccelerationStructureInfo);
+
+        // Storage imageのためのディスクリプタ
+        vk::DescriptorImageInfo imageDescriptor{};
+        imageDescriptor
+            .setImageView(storageImage.view.get())
+            .setImageLayout(vk::ImageLayout::eGeneral);
+
+        vk::WriteDescriptorSet resultImageWrite{};
+        resultImageWrite
+            .setDstSet(descriptorSet.get())
+            .setDescriptorType(vk::DescriptorType::eStorageImage)
+            .setDstBinding(1)
+            .setImageInfo(imageDescriptor);
+
+        device->updateDescriptorSets({ accelerationStructureWrite, resultImageWrite }, nullptr);
     }
 
     Buffer createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryPropertiy, void* data = nullptr)
@@ -549,17 +636,3 @@ private:
         glfwTerminate();
     }
 };
-
-int main()
-{
-    Application app;
-
-    try {
-        app.run();
-    } catch (const std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    return EXIT_SUCCESS;
-}
