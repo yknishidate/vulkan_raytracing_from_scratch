@@ -4,15 +4,6 @@
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
-struct StorageImage {
-    vk::UniqueDeviceMemory memory;
-    vk::UniqueImage image;
-    vk::UniqueImageView view;
-    vk::Format format;
-    uint32_t width;
-    uint32_t height;
-};
-
 struct Vertex {
     float pos[3];
 };
