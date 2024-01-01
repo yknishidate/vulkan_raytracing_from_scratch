@@ -39,8 +39,8 @@ private:
 
     vk::PhysicalDevice physicalDevice;
     vk::PhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
-    uint32_t queueFamilyIndex{};
     vk::PhysicalDeviceRayTracingPipelinePropertiesKHR rayTracingPipelineProperties{};
+    uint32_t queueFamilyIndex{};
 
     vk::UniqueInstance instance;
     vk::UniqueDebugUtilsMessengerEXT debugUtilsMessenger;
@@ -120,25 +120,24 @@ private:
 
     void createSwapchainImageViews() {
         for (auto& image : swapchainImages) {
-            swapchainImageViews.push_back(device->createImageViewUnique(
-                vk::ImageViewCreateInfo()
-                    .setImage(image)
-                    .setViewType(vk::ImageViewType::e2D)
-                    .setFormat(vk::Format::eB8G8R8A8Unorm)
-                    .setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG,
-                                    vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA})
-                    .setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1})));
+            vk::ImageViewCreateInfo imageViewCreateInfo{};
+            imageViewCreateInfo.setImage(image);
+            imageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
+            imageViewCreateInfo.setFormat(vk::Format::eB8G8R8A8Unorm);
+            imageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG,
+                                               vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
+            imageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+            swapchainImageViews.push_back(device->createImageViewUnique(imageViewCreateInfo));
         }
 
-        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get());
-        commandBuffer->begin(vk::CommandBufferBeginInfo{});
-        for (auto& image : swapchainImages) {
-            vkutils::setImageLayout(commandBuffer.get(), image, vk::ImageLayout::eUndefined,
-                                    vk::ImageLayout::ePresentSrcKHR,
-                                    {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-        }
-        commandBuffer->end();
-        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), queue);
+        vkutils::oneTimeSubmit(
+            device.get(), commandPool.get(), queue, [&](vk::CommandBuffer commandBuffer) {
+                for (auto& image : swapchainImages) {
+                    vkutils::setImageLayout(commandBuffer, image, vk::ImageLayout::eUndefined,
+                                            vk::ImageLayout::ePresentSrcKHR,
+                                            {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+                }
+            });
     }
 
     void createBottomLevelAS() {
@@ -216,12 +215,11 @@ private:
             .setTransformOffset(0);
 
         // ビルドコマンドを送信してデバイス上でASをビルドする
-        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get());
-        commandBuffer->begin(vk::CommandBufferBeginInfo{});
-        commandBuffer->buildAccelerationStructuresKHR(accelerationBuildGeometryInfo,
-                                                      &accelerationStructureBuildRangeInfo);
-        commandBuffer->end();
-        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), queue);
+        vkutils::oneTimeSubmit(
+            device.get(), commandPool.get(), queue, [&](vk::CommandBuffer commandBuffer) {
+                commandBuffer.buildAccelerationStructuresKHR(accelerationBuildGeometryInfo,
+                                                             &accelerationStructureBuildRangeInfo);
+            });
 
         // Bottom Level AS のハンドルを取得する
         blas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({blas.handle.get()});
@@ -298,12 +296,11 @@ private:
             .setTransformOffset(0);
 
         // ビルドコマンドを送信してデバイス上でASをビルドする
-        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get());
-        commandBuffer->begin(vk::CommandBufferBeginInfo{});
-        commandBuffer->buildAccelerationStructuresKHR(accelerationBuildGeometryInfo,
-                                                      &accelerationStructureBuildRangeInfo);
-        commandBuffer->end();
-        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), queue);
+        vkutils::oneTimeSubmit(
+            device.get(), commandPool.get(), queue, [&](vk::CommandBuffer commandBuffer) {
+                commandBuffer.buildAccelerationStructuresKHR(accelerationBuildGeometryInfo,
+                                                             &accelerationStructureBuildRangeInfo);
+            });
 
         // Bottom Level AS のハンドルを取得する
         tlas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({tlas.handle.get()});

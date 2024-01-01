@@ -16,6 +16,8 @@
 
 #include <GLFW/glfw3.h>
 
+#include <functional>
+
 // デフォルトディスパッチャのためのストレージを用意しておくマクロ
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
@@ -338,14 +340,34 @@ inline vk::UniqueCommandPool createCommandPool(vk::Device device, uint32_t queue
     return device.createCommandPoolUnique(commandPoolCreateInfo);
 }
 
-inline vk::UniqueCommandBuffer createCommandBuffer(vk::Device device, vk::CommandPool commandPool) {
-    // リストで生成して最初の要素をmoveする
-    std::vector<vk::UniqueCommandBuffer> commandBuffers =
-        device.allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}
-                                                .setCommandPool(commandPool)
-                                                .setLevel(vk::CommandBufferLevel::ePrimary)
-                                                .setCommandBufferCount(1));
-    return std::move(commandBuffers.front());
+inline void oneTimeSubmit(vk::Device device,
+                          vk::CommandPool commandPool,
+                          vk::Queue queue,
+                          const std::function<void(vk::CommandBuffer)>& func) {
+    // Allocate
+    vk::CommandBufferAllocateInfo allocateInfo{};
+    allocateInfo.setCommandPool(commandPool);
+    allocateInfo.setLevel(vk::CommandBufferLevel::ePrimary);
+    allocateInfo.setCommandBufferCount(1);
+    auto commandBuffers = device.allocateCommandBuffersUnique(allocateInfo);
+
+    // Record
+    commandBuffers[0]->begin(vk::CommandBufferBeginInfo{});
+    func(commandBuffers[0].get());
+    commandBuffers[0]->end();
+
+    // Submit
+    vk::UniqueFence fence = device.createFenceUnique({});
+    vk::SubmitInfo submitInfo{};
+    submitInfo.setCommandBuffers(commandBuffers[0].get());
+    queue.submit(submitInfo, fence.get());
+
+    // Wait
+    if (device.waitForFences(fence.get(), true, std::numeric_limits<uint64_t>::max()) !=
+        vk::Result::eSuccess) {
+        std::cerr << "Failed to wait for fence.\n";
+        std::abort();
+    }
 }
 
 inline std::vector<vk::UniqueCommandBuffer> createDrawCommandBuffers(vk::Device device,
@@ -356,16 +378,6 @@ inline std::vector<vk::UniqueCommandBuffer> createDrawCommandBuffers(vk::Device 
     allocateInfo.setLevel(vk::CommandBufferLevel::ePrimary);
     allocateInfo.setCommandBufferCount(count);
     return device.allocateCommandBuffersUnique(allocateInfo);
-}
-
-inline void submitCommandBuffer(vk::Device device,
-                                vk::CommandBuffer commandBuffer,
-                                vk::Queue queue) {
-    vk::UniqueFence fence = device.createFenceUnique({});
-
-    queue.submit(vk::SubmitInfo{}.setCommandBuffers(commandBuffer), fence.get());
-
-    device.waitForFences(fence.get(), true, std::numeric_limits<uint64_t>::max());
 }
 
 inline std::vector<char> readFile(const std::string& filename) {
