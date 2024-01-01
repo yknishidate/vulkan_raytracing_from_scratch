@@ -374,8 +374,8 @@ inline vk::UniqueSwapchainKHR createSwapChain(vk::Device device,
         .setImageColorSpace(surfaceFormat.colorSpace)
         .setImageExtent(extent)
         .setImageArrayLayers(1)
-        .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment |
-                       vk::ImageUsageFlagBits::eTransferDst)
+        .setImageUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eStorage |
+                       vk::ImageUsageFlagBits::eTransferSrc)  // TODO: remove
         .setImageSharingMode(vk::SharingMode::eExclusive)
         .setQueueFamilyIndices(nullptr)
         .setPreTransform(swapChainSupport.capabilities.currentTransform)
@@ -393,12 +393,9 @@ inline vk::UniqueSwapchainKHR createSwapChain(vk::Device device,
         createInfo.setQueueFamilyIndices(queueFamilyIndices.graphicsFamily.value());
     }
 
-    vk::UniqueSwapchainKHR swapChain = device.createSwapchainKHRUnique(createInfo);
-
     swapChainImageFormat = surfaceFormat.format;
     swapChainExtent = extent;
-
-    return swapChain;
+    return device.createSwapchainKHRUnique(createInfo);
 }
 
 inline std::vector<vk::Image> getSwapChainImages(vk::Device device, vk::SwapchainKHR swapChain) {
