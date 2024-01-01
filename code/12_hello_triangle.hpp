@@ -380,11 +380,12 @@ private:
                                                           .setGroups(shaderGroups)
                                                           .setMaxPipelineRayRecursionDepth(1)
                                                           .setLayout(pipelineLayout.get()));
-        if (result.result == vk::Result::eSuccess) {
-            pipeline = std::move(result.value);
-        } else {
-            throw std::runtime_error("failed to create ray tracing pipeline.");
+        if (result.result != vk::Result::eSuccess) {
+            std::cerr << "Failed to create ray tracing pipeline.\n";
+            std::abort();
         }
+
+        pipeline = std::move(result.value);
     }
 
     void createShaderBindingTable() {
@@ -406,7 +407,8 @@ private:
         auto result = device->getRayTracingShaderGroupHandlesKHR(
             pipeline.get(), 0, groupCount, sbtSize, shaderHandleStorage.data());
         if (result != vk::Result::eSuccess) {
-            throw std::runtime_error("failed to get ray tracing shader group handles.");
+            std::cerr << "Failed to get ray tracing shader group handles.\n";
+            std::abort();
         }
 
         // シェーダタイプごとにバインディングテーブルバッファを作成する
@@ -532,12 +534,12 @@ private:
         auto result = device->acquireNextImageKHR(swapchain.get(),  // swapchain
                                                   std::numeric_limits<uint64_t>::max(),  // timeout
                                                   imageAvailableSemaphore.get());
-        uint32_t imageIndex;
-        if (result.result == vk::Result::eSuccess) {
-            imageIndex = result.value;
-        } else {
-            throw std::runtime_error("failed to acquire next image!");
+        if (result.result != vk::Result::eSuccess) {
+            std::cerr << "Failed to acquire next image.\n";
+            std::abort();
         }
+
+        uint32_t imageIndex = result.value;
 
         updateDescriptorSets(swapchainImageViews[imageIndex].get());
 

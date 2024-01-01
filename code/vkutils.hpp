@@ -76,11 +76,12 @@ inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers)
     VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
     if (!checkLayerSupport(layers)) {
-        throw std::runtime_error("Requested layers not available.");
+        std::cerr << "Requested layers not available.\n";
+        std::abort();
     }
 
-    vk::ApplicationInfo appInfo{"Application", VK_MAKE_VERSION(1, 0, 0), "Engine",
-                                VK_MAKE_VERSION(1, 0, 0), VK_API_VERSION_1_2};
+    vk::ApplicationInfo appInfo{};
+    appInfo.setApiVersion(VK_API_VERSION_1_2);
 
     auto extensions = getRequiredExtensions();
 
@@ -96,7 +97,8 @@ inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers)
 
     vk::StructureChain<vk::InstanceCreateInfo, vk::DebugUtilsMessengerCreateInfoEXT> createInfo{
         {{}, &appInfo, layers, extensions},
-        {{}, severityFlags, messageTypeFlags, &debugUtilsMessengerCallback}};
+        {{}, severityFlags, messageTypeFlags, &debugUtilsMessengerCallback},
+    };
 
     vk::UniqueInstance instance =
         vk::createInstanceUnique(createInfo.get<vk::InstanceCreateInfo>());
@@ -127,13 +129,13 @@ inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instan
 inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance, GLFWwindow* window) {
     std::cout << "Create surface\n";
 
-    // glfw は生の VkSurface や VkInstance で操作する必要がある
+    // glfw は生の VkSurface で操作する必要がある
     VkSurfaceKHR _surface;
     if (glfwCreateWindowSurface(instance, window, nullptr, &_surface) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create window surface!");
+        std::cerr << "Failed to create window surface.\n";
+        std::abort();
     }
-    vk::ObjectDestroy<vk::Instance, VULKAN_HPP_DEFAULT_DISPATCHER_TYPE> _deleter(instance);
-    return vk::UniqueSurfaceKHR{vk::SurfaceKHR(_surface), _deleter};
+    return vk::UniqueSurfaceKHR{vk::SurfaceKHR(_surface), {instance}};
 }
 
 inline uint32_t findGeneralQueueFamilies(vk::PhysicalDevice physicalDevice,
@@ -382,19 +384,16 @@ inline std::vector<vk::UniqueCommandBuffer> createDrawCommandBuffers(vk::Device 
 
 inline std::vector<char> readFile(const std::string& filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
-
     if (!file.is_open()) {
-        throw std::runtime_error("failed to open file!");
+        std::cerr << "Failed to open file!\n";
+        std::abort();
     }
 
-    size_t fileSize = (size_t)file.tellg();
+    size_t fileSize = file.tellg();
     std::vector<char> buffer(fileSize);
-
     file.seekg(0);
     file.read(buffer.data(), fileSize);
-
     file.close();
-
     return buffer;
 }
 
