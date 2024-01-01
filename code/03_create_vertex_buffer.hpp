@@ -1,8 +1,8 @@
-
+#pragma once
 #include "vkutils.hpp"
 
-const uint32_t WIDTH = 800;
-const uint32_t HEIGHT = 600;
+constexpr uint32_t WIDTH = 800;
+constexpr uint32_t HEIGHT = 600;
 
 struct StorageImage
 {
@@ -131,8 +131,8 @@ private:
         auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
 
         vkutils::setImageLayout(commandBuffer.get(), storageImage.image.get(),
-            vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral,
-            { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+                                vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral,
+                                { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 
         vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
     }

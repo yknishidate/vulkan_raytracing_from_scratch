@@ -1,8 +1,8 @@
-
+#pragma once
 #include "vkutils.hpp"
 
-const uint32_t WIDTH = 800;
-const uint32_t HEIGHT = 600;
+constexpr uint32_t WIDTH = 800;
+constexpr uint32_t HEIGHT = 600;
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
 struct StorageImage
@@ -165,8 +165,8 @@ private:
         auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
 
         vkutils::setImageLayout(commandBuffer.get(), storageImage.image.get(),
-            vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral,
-            { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+                                vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral,
+                                { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 
         vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
     }
@@ -437,11 +437,11 @@ private:
 
         // レイトレーシングパイプラインを作成する
         auto result = device->createRayTracingPipelineKHRUnique(nullptr, nullptr,
-            vk::RayTracingPipelineCreateInfoKHR{}
-            .setStages(shaderStages)
-            .setGroups(shaderGroups)
-            .setMaxPipelineRayRecursionDepth(1)
-            .setLayout(pipelineLayout.get())
+                                                                vk::RayTracingPipelineCreateInfoKHR{}
+                                                                .setStages(shaderStages)
+                                                                .setGroups(shaderGroups)
+                                                                .setMaxPipelineRayRecursionDepth(1)
+                                                                .setLayout(pipelineLayout.get())
         );
         if (result.result == vk::Result::eSuccess) {
             pipeline = std::move(result.value);
@@ -588,11 +588,11 @@ private:
 
             // スワップチェインの画像を送信先に設定
             vkutils::setImageLayout(drawCommandBuffers[i].get(), swapChainImages[i],
-                vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, subresourceRange);
+                                    vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, subresourceRange);
 
             // レイトレの出力を送信元に設定
             vkutils::setImageLayout(drawCommandBuffers[i].get(), storageImage.image.get(),
-                vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferSrcOptimal, subresourceRange);
+                                    vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferSrcOptimal, subresourceRange);
 
             // コピー
             vk::ImageCopy copyRegion{};
@@ -612,11 +612,11 @@ private:
 
             // スワップチェインの画像を提示用に設定
             vkutils::setImageLayout(drawCommandBuffers[i].get(), swapChainImages[i],
-                vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR, subresourceRange);
+                                    vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR, subresourceRange);
 
             // レイトレの出力をGeneralに設定
             vkutils::setImageLayout(drawCommandBuffers[i].get(), storageImage.image.get(),
-                vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral, subresourceRange);
+                                    vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral, subresourceRange);
 
             drawCommandBuffers[i]->end();
         }
@@ -690,7 +690,7 @@ private:
             vk::BufferCreateInfo{}
             .setSize(buildSizesInfo.accelerationStructureSize)
             .setUsage(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR
-                | vk::BufferUsageFlagBits::eShaderDeviceAddress)
+                      | vk::BufferUsageFlagBits::eShaderDeviceAddress)
         );
 
         // メモリを確保してバインドする
