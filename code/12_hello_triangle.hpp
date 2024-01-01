@@ -142,7 +142,8 @@ private:
 
     void buildAccelerationStructure(AccelerationStructure& accelerationStructure,
                                     vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo,
-                                    vk::AccelerationStructureGeometryKHR geometry) {
+                                    vk::AccelerationStructureGeometryKHR geometry,
+                                    vk::AccelerationStructureTypeKHR type) {
         // ここから実際のビルドを行っていく
         vk::AccelerationStructureKHR handle = accelerationStructure.handle.get();
 
@@ -151,7 +152,7 @@ private:
 
         // ビルド情報を作成する
         vk::AccelerationStructureBuildGeometryInfoKHR accelerationBuildGeometryInfo{};
-        accelerationBuildGeometryInfo.setType(vk::AccelerationStructureTypeKHR::eBottomLevel)
+        accelerationBuildGeometryInfo.setType(type)
             .setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
             .setMode(vk::BuildAccelerationStructureModeKHR::eBuild)
             .setDstAccelerationStructure(handle)
@@ -171,7 +172,7 @@ private:
                                                              &accelerationStructureBuildRangeInfo);
             });
 
-        //  アドレスを取得する
+        // アドレスを取得する
         accelerationStructure.buffer.deviceAddress =
             device->getAccelerationStructureAddressKHR({handle});
     }
@@ -231,7 +232,8 @@ private:
                 .setType(vk::AccelerationStructureTypeKHR::eBottomLevel));
 
         // Build
-        buildAccelerationStructure(blas, buildSizesInfo, geometry);
+        buildAccelerationStructure(blas, buildSizesInfo, geometry,
+                                   vk::AccelerationStructureTypeKHR::eBottomLevel);
     }
 
     void createTopLevelAS() {
@@ -285,34 +287,9 @@ private:
                 .setSize(buildSizesInfo.accelerationStructureSize)
                 .setType(vk::AccelerationStructureTypeKHR::eTopLevel));
 
-        // ここから実際のビルドを行っていく
-
-        // スクラッチバッファを作成する
-        Buffer scratchBuffer = createScratchBuffer(buildSizesInfo.buildScratchSize);
-
-        // ビルド情報を作成する
-        vk::AccelerationStructureBuildGeometryInfoKHR accelerationBuildGeometryInfo{};
-        accelerationBuildGeometryInfo.setType(vk::AccelerationStructureTypeKHR::eTopLevel)
-            .setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
-            .setDstAccelerationStructure(tlas.handle.get())
-            .setGeometries(geometry)
-            .setScratchData(scratchBuffer.deviceAddress);
-
-        vk::AccelerationStructureBuildRangeInfoKHR accelerationStructureBuildRangeInfo{};
-        accelerationStructureBuildRangeInfo.setPrimitiveCount(1)
-            .setPrimitiveOffset(0)
-            .setFirstVertex(0)
-            .setTransformOffset(0);
-
-        // ビルドコマンドを送信してデバイス上でASをビルドする
-        vkutils::oneTimeSubmit(
-            device.get(), commandPool.get(), queue, [&](vk::CommandBuffer commandBuffer) {
-                commandBuffer.buildAccelerationStructuresKHR(accelerationBuildGeometryInfo,
-                                                             &accelerationStructureBuildRangeInfo);
-            });
-
-        // Bottom Level AS のハンドルを取得する
-        tlas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({tlas.handle.get()});
+        // Build
+        buildAccelerationStructure(tlas, buildSizesInfo, geometry,
+                                   vk::AccelerationStructureTypeKHR::eTopLevel);
     }
 
     void createRayTracingPipeLine() {
