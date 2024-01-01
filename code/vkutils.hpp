@@ -106,7 +106,6 @@ inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instan
 inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance, GLFWwindow* window) {
     std::cout << "Create surface\n";
 
-    // glfw は生の VkSurface で操作する必要がある
     VkSurfaceKHR _surface;
     if (glfwCreateWindowSurface(instance, window, nullptr, &_surface) != VK_SUCCESS) {
         std::cerr << "Failed to create window surface.\n";
@@ -137,17 +136,17 @@ inline bool checkDeviceExtensionSupport(vk::PhysicalDevice device,
     return requiredExtensions.empty();
 }
 
-inline bool isDeviceSuitable(vk::PhysicalDevice device,
+inline bool isDeviceSuitable(vk::PhysicalDevice physicalDevice,
                              vk::SurfaceKHR surface,
                              const std::vector<const char*>& deviceExtensions) {
-    bool extensionsSupported = checkDeviceExtensionSupport(device, deviceExtensions);
-    if (!extensionsSupported) {
+    if (!checkDeviceExtensionSupport(physicalDevice, deviceExtensions)) {
         return false;
     }
-
-    std::vector<vk::SurfaceFormatKHR> formats = device.getSurfaceFormatsKHR(surface);
-    std::vector<vk::PresentModeKHR> presentModes = device.getSurfacePresentModesKHR(surface);
-    return !formats.empty() && !presentModes.empty();
+    if (physicalDevice.getSurfaceFormatsKHR(surface).empty() ||
+        physicalDevice.getSurfacePresentModesKHR(surface).empty()) {
+        return false;
+    }
+    return true;
 }
 
 inline vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance,
@@ -183,19 +182,16 @@ inline vk::UniqueDevice createLogicalDevice(vk::PhysicalDevice physicalDevice,
     deviceCreateInfo.setQueueCreateInfos(queueCreateInfo);
     deviceCreateInfo.setPEnabledExtensionNames(deviceExtensions);
 
-    vk::PhysicalDeviceFeatures2 features2 = physicalDevice.getFeatures2();
-
-    vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2,
-                       vk::PhysicalDeviceRayTracingPipelineFeaturesKHR,
-                       vk::PhysicalDeviceAccelerationStructureFeaturesKHR,
-                       vk::PhysicalDeviceBufferDeviceAddressFeatures>
-        createInfoChain{{deviceCreateInfo}, {features2}, {VK_TRUE}, {VK_TRUE}, {VK_TRUE}};
+    vk::StructureChain createInfoChain{
+        deviceCreateInfo,
+        vk::PhysicalDeviceRayTracingPipelineFeaturesKHR{VK_TRUE},
+        vk::PhysicalDeviceAccelerationStructureFeaturesKHR{VK_TRUE},
+        vk::PhysicalDeviceBufferDeviceAddressFeatures{VK_TRUE},
+    };
 
     vk::UniqueDevice device =
         physicalDevice.createDeviceUnique(createInfoChain.get<vk::DeviceCreateInfo>());
-
     VULKAN_HPP_DEFAULT_DISPATCHER.init(device.get());
-
     return device;
 }
 
@@ -227,14 +223,16 @@ inline vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR capabilities,
                                      uint32_t height) {
     if (capabilities.currentExtent.width != UINT32_MAX) {
         return capabilities.currentExtent;
-    } else {
-        vk::Extent2D actualExtent = {width, height};
-        actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width,
-                                        capabilities.maxImageExtent.width);
-        actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height,
-                                         capabilities.maxImageExtent.height);
-        return actualExtent;
     }
+
+    vk::Extent2D actualExtent = {width, height};
+    actualExtent.width = std::clamp(actualExtent.width,                 //
+                                    capabilities.minImageExtent.width,  //
+                                    capabilities.maxImageExtent.width);
+    actualExtent.height = std::clamp(actualExtent.height,                 //
+                                     capabilities.minImageExtent.height,  //
+                                     capabilities.maxImageExtent.height);
+    return actualExtent;
 }
 
 inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
@@ -262,9 +260,7 @@ inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
     createInfo.setImageColorSpace(surfaceFormat.colorSpace);
     createInfo.setImageExtent(extent);
     createInfo.setImageArrayLayers(1);
-    createInfo.setImageUsage(vk::ImageUsageFlagBits::eTransferDst |
-                             vk::ImageUsageFlagBits::eStorage |
-                             vk::ImageUsageFlagBits::eTransferSrc);  // TODO: remove
+    createInfo.setImageUsage(vk::ImageUsageFlagBits::eStorage);
     createInfo.setQueueFamilyIndices(nullptr);
     createInfo.setPreTransform(capabilities.currentTransform);
     createInfo.setPresentMode(presentMode);

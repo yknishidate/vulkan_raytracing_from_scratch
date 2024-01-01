@@ -38,7 +38,6 @@ private:
     GLFWwindow* window = nullptr;
 
     vk::PhysicalDevice physicalDevice;
-    vk::PhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
     vk::PhysicalDeviceRayTracingPipelinePropertiesKHR rayTracingPipelineProperties{};
     uint32_t queueFamilyIndex{};
 
