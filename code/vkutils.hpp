@@ -5,10 +5,10 @@
 
 #include <algorithm>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <optional>
 #include <set>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -16,19 +16,10 @@
 
 #include <GLFW/glfw3.h>
 
-#include <functional>
-
 // デフォルトディスパッチャのためのストレージを用意しておくマクロ
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 namespace vkutils {
-// 構造体
-struct SwapChainSupportDetails {
-    vk::SurfaceCapabilitiesKHR capabilities;
-    std::vector<vk::SurfaceFormatKHR> formats;
-    std::vector<vk::PresentModeKHR> presentModes;
-};
-
 // 関数定義
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -112,17 +103,13 @@ inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers)
 inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instance) {
     std::cout << "Create debug messenger\n";
 
-    vk::DebugUtilsMessageSeverityFlagsEXT severityFlags{
-        vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-        vk::DebugUtilsMessageSeverityFlagBitsEXT::eError};
-    vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags{
-        vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-        vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
-        vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation};
-
-    vk::DebugUtilsMessengerCreateInfoEXT createInfo{
-        {}, severityFlags, messageTypeFlags, &debugUtilsMessengerCallback};
-
+    vk::DebugUtilsMessengerCreateInfoEXT createInfo{};
+    createInfo.setMessageSeverity(vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+                                  vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
+    createInfo.setMessageType(vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
+                              vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
+                              vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
+    createInfo.setPfnUserCallback(&debugUtilsMessengerCallback);
     return instance.createDebugUtilsMessengerEXTUnique(createInfo);
 }
 
@@ -140,15 +127,13 @@ inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance, GLFWwindow* win
 
 inline uint32_t findGeneralQueueFamilies(vk::PhysicalDevice physicalDevice,
                                          vk::SurfaceKHR surface) {
-    std::vector<vk::QueueFamilyProperties> queueFamilies =
-        physicalDevice.getQueueFamilyProperties();
+    auto queueFamilies = physicalDevice.getQueueFamilyProperties();
     for (uint32_t i = 0; i < queueFamilies.size(); i++) {
         vk::Bool32 presentSupport = physicalDevice.getSurfaceSupportKHR(i, surface);
         if (queueFamilies[i].queueFlags & vk::QueueFlagBits::eGraphics && presentSupport) {
             return i;
         }
     }
-
     std::cerr << "Failed to find general queue family.\n";
     std::abort();
 }
@@ -162,39 +147,24 @@ inline bool checkDeviceExtensionSupport(vk::PhysicalDevice device,
     return requiredExtensions.empty();
 }
 
-inline SwapChainSupportDetails querySwapChainSupport(vk::PhysicalDevice device,
-                                                     vk::SurfaceKHR surface) {
-    SwapChainSupportDetails details;
-    details.capabilities = device.getSurfaceCapabilitiesKHR(surface);
-    details.formats = device.getSurfaceFormatsKHR(surface);
-    details.presentModes = device.getSurfacePresentModesKHR(surface);
-
-    return details;
-}
-
 inline bool isDeviceSuitable(vk::PhysicalDevice device,
                              vk::SurfaceKHR surface,
                              const std::vector<const char*>& deviceExtensions) {
     bool extensionsSupported = checkDeviceExtensionSupport(device, deviceExtensions);
-
-    bool swapchainAdequate = false;
-    if (extensionsSupported) {
-        SwapChainSupportDetails swapchainSupport = querySwapChainSupport(device, surface);
-        swapchainAdequate =
-            !swapchainSupport.formats.empty() && !swapchainSupport.presentModes.empty();
+    if (!extensionsSupported) {
+        return false;
     }
 
-    return extensionsSupported && swapchainAdequate;
+    std::vector<vk::SurfaceFormatKHR> formats = device.getSurfaceFormatsKHR(surface);
+    std::vector<vk::PresentModeKHR> presentModes = device.getSurfacePresentModesKHR(surface);
+    return !formats.empty() && !presentModes.empty();
 }
 
 inline vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance,
                                              vk::SurfaceKHR surface,
                                              const std::vector<const char*>& deviceExtensions) {
-    // 全ての物理デバイスを取得
-    std::vector<vk::PhysicalDevice> devices = instance.enumeratePhysicalDevices();
-
     // 適切な物理デバイスを選択
-    for (const auto& device : devices) {
+    for (const auto& device : instance.enumeratePhysicalDevices()) {
         if (isDeviceSuitable(device, surface, deviceExtensions)) {
             return device;
         }
@@ -220,8 +190,8 @@ inline vk::UniqueDevice createLogicalDevice(vk::PhysicalDevice physicalDevice,
     vk::DeviceQueueCreateInfo queueCreateInfo{{}, queueFamilyIndex, 1, &queuePriority};
 
     vk::DeviceCreateInfo deviceCreateInfo{};
-    deviceCreateInfo.setQueueCreateInfos(queueCreateInfo)
-        .setPEnabledExtensionNames(deviceExtensions);
+    deviceCreateInfo.setQueueCreateInfos(queueCreateInfo);
+    deviceCreateInfo.setPEnabledExtensionNames(deviceExtensions);
 
     vk::PhysicalDeviceFeatures2 features2 = physicalDevice.getFeatures2();
 
@@ -239,19 +209,20 @@ inline vk::UniqueDevice createLogicalDevice(vk::PhysicalDevice physicalDevice,
     return device;
 }
 
-inline vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
-    const std::vector<vk::SurfaceFormatKHR>& availableFormats) {
+inline vk::SurfaceFormatKHR chooseSwapSurfaceFormat(vk::PhysicalDevice physicalDevice,
+                                                    vk::SurfaceKHR surface) {
+    auto availableFormats = physicalDevice.getSurfaceFormatsKHR(surface);
     for (const auto& availableFormat : availableFormats) {
         if (availableFormat.format == vk::Format::eB8G8R8A8Unorm) {
             return availableFormat;
         }
     }
-
     return availableFormats[0];
 }
 
-inline vk::PresentModeKHR chooseSwapPresentMode(
-    const std::vector<vk::PresentModeKHR>& availablePresentModes) {
+inline vk::PresentModeKHR chooseSwapPresentMode(vk::PhysicalDevice physicalDevice,
+                                                vk::SurfaceKHR surface) {
+    auto availablePresentModes = physicalDevice.getSurfacePresentModesKHR(surface);
     for (const auto& availablePresentMode : availablePresentModes) {
         if (availablePresentMode == vk::PresentModeKHR::eFifoRelaxed) {
             return availablePresentMode;
@@ -284,37 +255,31 @@ inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
                                               uint32_t height) {
     std::cout << "Create swapchain\n";
 
-    SwapChainSupportDetails swapchainSupport = querySwapChainSupport(physicalDevice, surface);
+    vk::SurfaceCapabilitiesKHR capabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
+    vk::SurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(physicalDevice, surface);
+    vk::PresentModeKHR presentMode = chooseSwapPresentMode(physicalDevice, surface);
+    vk::Extent2D extent = chooseSwapExtent(capabilities, width, height);
 
-    vk::SurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapchainSupport.formats);
-    vk::PresentModeKHR presentMode = chooseSwapPresentMode(swapchainSupport.presentModes);
-    vk::Extent2D extent = chooseSwapExtent(swapchainSupport.capabilities, width, height);
-
-    uint32_t imageCount = swapchainSupport.capabilities.minImageCount + 1;
-
-    if (swapchainSupport.capabilities.maxImageCount > 0 &&
-        imageCount > swapchainSupport.capabilities.maxImageCount) {
-        imageCount = swapchainSupport.capabilities.maxImageCount;
+    uint32_t imageCount = capabilities.minImageCount + 1;
+    if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
+        imageCount = capabilities.maxImageCount;
     }
 
     vk::SwapchainCreateInfoKHR createInfo{};
-    createInfo.setSurface(surface)
-        .setMinImageCount(imageCount)
-        .setImageFormat(surfaceFormat.format)
-        .setImageColorSpace(surfaceFormat.colorSpace)
-        .setImageExtent(extent)
-        .setImageArrayLayers(1)
-        .setImageUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eStorage |
-                       vk::ImageUsageFlagBits::eTransferSrc)  // TODO: remove
-        .setImageSharingMode(vk::SharingMode::eExclusive)
-        .setQueueFamilyIndices(nullptr)
-        .setPreTransform(swapchainSupport.capabilities.currentTransform)
-        .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
-        .setPresentMode(presentMode)
-        .setClipped(VK_TRUE)
-        .setOldSwapchain(nullptr)
-        .setQueueFamilyIndices(queueFamilyIndex);
-
+    createInfo.setSurface(surface);
+    createInfo.setMinImageCount(imageCount);
+    createInfo.setImageFormat(surfaceFormat.format);
+    createInfo.setImageColorSpace(surfaceFormat.colorSpace);
+    createInfo.setImageExtent(extent);
+    createInfo.setImageArrayLayers(1);
+    createInfo.setImageUsage(vk::ImageUsageFlagBits::eTransferDst |
+                             vk::ImageUsageFlagBits::eStorage |
+                             vk::ImageUsageFlagBits::eTransferSrc);  // TODO: remove
+    createInfo.setQueueFamilyIndices(nullptr);
+    createInfo.setPreTransform(capabilities.currentTransform);
+    createInfo.setPresentMode(presentMode);
+    createInfo.setClipped(VK_TRUE);
+    createInfo.setQueueFamilyIndices(queueFamilyIndex);
     return device.createSwapchainKHRUnique(createInfo);
 }
 
@@ -415,12 +380,12 @@ inline void setImageLayout(
     vk::PipelineStageFlags srcStageMask = vk::PipelineStageFlagBits::eAllCommands,
     vk::PipelineStageFlags dstStageMask = vk::PipelineStageFlagBits::eAllCommands) {
     vk::ImageMemoryBarrier imageMemoryBarrier{};
-    imageMemoryBarrier.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(image)
-        .setOldLayout(oldImageLayout)
-        .setNewLayout(newImageLayout)
-        .setSubresourceRange(subresourceRange);
+    imageMemoryBarrier.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
+    imageMemoryBarrier.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
+    imageMemoryBarrier.setImage(image);
+    imageMemoryBarrier.setOldLayout(oldImageLayout);
+    imageMemoryBarrier.setNewLayout(newImageLayout);
+    imageMemoryBarrier.setSubresourceRange(subresourceRange);
 
     // Source layouts (old)
     switch (oldImageLayout) {
@@ -476,13 +441,8 @@ inline void setImageLayout(
     }
 
     // コマンドバッファにバリアを積む
-    commandBuffer.pipelineBarrier(srcStageMask,       // srcStageMask
-                                  dstStageMask,       // dstStageMask
-                                  {},                 // dependencyFlags
-                                  {},                 // memoryBarriers
-                                  {},                 // bufferMemoryBarriers
-                                  imageMemoryBarrier  // imageMemoryBarriers
-    );
+    commandBuffer.pipelineBarrier(srcStageMask, dstStageMask,  //
+                                  {}, {}, {}, imageMemoryBarrier);
 }
 
 inline uint32_t getHandleSizeAligned(vk::PhysicalDeviceRayTracingPipelinePropertiesKHR props) {
