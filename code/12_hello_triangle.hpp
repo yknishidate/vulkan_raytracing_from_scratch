@@ -77,7 +77,9 @@ private:
     }
 
     void initVulkan() {
-        std::vector<const char*> layers = {"VK_LAYER_KHRONOS_validation"};
+        std::vector<const char*> layers = {
+            "VK_LAYER_KHRONOS_validation",
+        };
 
         std::vector<const char*> deviceExtensions = {
             // Swapchain

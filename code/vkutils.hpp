@@ -1,6 +1,4 @@
 #pragma once
-
-// DispatchLoaderDynamicをデフォルトディスパッチャとして使うように設定
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 
 #include <algorithm>
@@ -16,11 +14,9 @@
 
 #include <GLFW/glfw3.h>
 
-// デフォルトディスパッチャのためのストレージを用意しておくマクロ
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 namespace vkutils {
-// 関数定義
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                             VkDebugUtilsMessageTypeFlagsEXT messageTypes,
@@ -57,52 +53,7 @@ inline std::vector<const char*> getRequiredExtensions() {
     return extensions;
 }
 
-inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers) {
-    std::cout << "Create instance\n";
-
-    // インスタンスに依存しない関数ポインタを取得する
-    static vk::DynamicLoader dl;
-    auto vkGetInstanceProcAddr =
-        dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
-
-    if (!checkLayerSupport(layers)) {
-        std::cerr << "Requested layers not available.\n";
-        std::abort();
-    }
-
-    vk::ApplicationInfo appInfo{};
-    appInfo.setApiVersion(VK_API_VERSION_1_2);
-
-    auto extensions = getRequiredExtensions();
-
-    // デバッグモードの場合
-    vk::DebugUtilsMessageSeverityFlagsEXT severityFlags{
-        vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-        vk::DebugUtilsMessageSeverityFlagBitsEXT::eError};
-
-    vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags{
-        vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-        vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
-        vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation};
-
-    vk::StructureChain<vk::InstanceCreateInfo, vk::DebugUtilsMessengerCreateInfoEXT> createInfo{
-        {{}, &appInfo, layers, extensions},
-        {{}, severityFlags, messageTypeFlags, &debugUtilsMessengerCallback},
-    };
-
-    vk::UniqueInstance instance =
-        vk::createInstanceUnique(createInfo.get<vk::InstanceCreateInfo>());
-
-    // 全ての関数ポインタを取得する
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
-
-    return instance;
-}
-
-inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instance) {
-    std::cout << "Create debug messenger\n";
-
+inline vk::DebugUtilsMessengerCreateInfoEXT createDebugCreateInfo() {
     vk::DebugUtilsMessengerCreateInfoEXT createInfo{};
     createInfo.setMessageSeverity(vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
                                   vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
@@ -110,6 +61,45 @@ inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instan
                               vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
                               vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
     createInfo.setPfnUserCallback(&debugUtilsMessengerCallback);
+    return createInfo;
+}
+
+inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers) {
+    std::cout << "Create instance\n";
+
+    // Setup dynamic loader
+    static vk::DynamicLoader dl;
+    auto vkGetInstanceProcAddr =
+        dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
+
+    // Check layer support
+    if (!checkLayerSupport(layers)) {
+        std::cerr << "Requested layers not available.\n";
+        std::abort();
+    }
+
+    // Create instance
+    vk::ApplicationInfo appInfo{};
+    appInfo.setApiVersion(VK_API_VERSION_1_2);
+
+    std::vector<const char*> extensions = getRequiredExtensions();
+
+    vk::DebugUtilsMessengerCreateInfoEXT debugCreateInfo = createDebugCreateInfo();
+
+    vk::InstanceCreateInfo instanceCreateInfo{};
+    instanceCreateInfo.setPApplicationInfo(&appInfo);
+    instanceCreateInfo.setPEnabledLayerNames(layers);
+    instanceCreateInfo.setPEnabledExtensionNames(extensions);
+    instanceCreateInfo.setPNext(&debugCreateInfo);
+    vk::UniqueInstance instance = vk::createInstanceUnique(instanceCreateInfo);
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
+    return instance;
+}
+
+inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instance) {
+    std::cout << "Create debug messenger\n";
+    vk::DebugUtilsMessengerCreateInfoEXT createInfo = createDebugCreateInfo();
     return instance.createDebugUtilsMessengerEXTUnique(createInfo);
 }
 
