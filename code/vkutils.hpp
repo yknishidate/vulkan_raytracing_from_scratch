@@ -35,7 +35,6 @@ struct SwapChainSupportDetails {
 };
 
 // 変数
-inline static GLFWwindow* window = nullptr;
 inline static vk::PhysicalDevice physicalDevice = nullptr;
 inline static uint32_t swapChainImagesSize;
 inline static vk::Format swapChainImageFormat;
@@ -172,10 +171,8 @@ inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instan
     return instance.createDebugUtilsMessengerEXTUnique(createInfo);
 }
 
-inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance, GLFWwindow* _window) {
+inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance, GLFWwindow* window) {
     std::cout << "Create Surface" << std::endl;
-
-    window = _window;
 
     // glfw は生の VkSurface や VkInstance で操作する必要がある
     VkSurfaceKHR _surface;
@@ -254,12 +251,11 @@ inline bool isDeviceSuitable(vk::PhysicalDevice device, vk::SurfaceKHR surface) 
     return queueFamilyIndices.isComplete() && extensionsSupported && swapChainAdequate;
 }
 
-inline vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance, vk::SurfaceKHR surface) {
+inline void pickPhysicalDevice(vk::Instance instance, vk::SurfaceKHR surface) {
     // 全ての物理デバイスを取得
     std::vector<vk::PhysicalDevice> devices = instance.enumeratePhysicalDevices();
 
     // 適切な物理デバイスを選択
-    vk::PhysicalDevice physicalDevice;
     for (const auto& device : devices) {
         if (isDeviceSuitable(device, surface)) {
             physicalDevice = device;
@@ -270,14 +266,12 @@ inline vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance, vk::SurfaceK
     if (!physicalDevice) {
         throw std::runtime_error("failed to find a suitable GPU!");
     }
-
-    return physicalDevice;
 }
 
 inline vk::UniqueDevice createLogicalDevice(vk::Instance instance, vk::SurfaceKHR surface) {
     std::cout << "Create Logical Device" << std::endl;
 
-    physicalDevice = pickPhysicalDevice(instance, surface);
+    pickPhysicalDevice(instance, surface);
     physicalDeviceMemoryProperties = physicalDevice.getMemoryProperties();
 
     float queuePriority = 1.0f;
@@ -341,32 +335,32 @@ inline vk::PresentModeKHR chooseSwapPresentMode(
     return vk::PresentModeKHR::eFifo;
 }
 
-inline vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR capabilities) {
+inline vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR capabilities,
+                                     uint32_t width,
+                                     uint32_t height) {
     if (capabilities.currentExtent.width != UINT32_MAX) {
         return capabilities.currentExtent;
     } else {
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
-
-        vk::Extent2D actualExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
-
+        vk::Extent2D actualExtent = {width, height};
         actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width,
                                         capabilities.maxImageExtent.width);
         actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height,
                                          capabilities.maxImageExtent.height);
-
         return actualExtent;
     }
 }
 
-inline vk::UniqueSwapchainKHR createSwapChain(vk::Device device, vk::SurfaceKHR surface) {
+inline vk::UniqueSwapchainKHR createSwapChain(vk::Device device,
+                                              vk::SurfaceKHR surface,
+                                              uint32_t width,
+                                              uint32_t height) {
     std::cout << "Create Swap Chain" << std::endl;
 
     SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice, surface);
 
     vk::SurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
     vk::PresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
-    vk::Extent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+    vk::Extent2D extent = chooseSwapExtent(swapChainSupport.capabilities, width, height);
 
     uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
 
@@ -441,7 +435,7 @@ inline uint32_t getMemoryType(vk::MemoryRequirements memoryRequirements,
     return result;
 }
 
-inline inline vk::UniqueCommandPool createCommandPool(vk::Device device) {
+inline vk::UniqueCommandPool createCommandPool(vk::Device device) {
     return device.createCommandPoolUnique(
         vk::CommandPoolCreateInfo{}
             .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
