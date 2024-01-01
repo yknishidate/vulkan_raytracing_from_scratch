@@ -24,8 +24,14 @@ public:
     void run() {
         initWindow();
         initVulkan();
-        mainLoop();
-        cleanup();
+
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+            drawFrame();
+        }
+        device->waitIdle();
+        glfwDestroyWindow(window);
+        glfwTerminate();
     }
 
 private:
@@ -662,18 +668,5 @@ private:
         scratchBuffer.deviceAddress = getBufferDeviceAddress(scratchBuffer.handle.get());
 
         return scratchBuffer;
-    }
-
-    void mainLoop() {
-        while (!glfwWindowShouldClose(window)) {
-            glfwPollEvents();
-            drawFrame();
-        }
-        device->waitIdle();
-    }
-
-    void cleanup() {
-        glfwDestroyWindow(window);
-        glfwTerminate();
     }
 };

@@ -151,24 +151,11 @@ inline uint32_t findGeneralQueueFamilies(vk::PhysicalDevice physicalDevice,
 
 inline bool checkDeviceExtensionSupport(vk::PhysicalDevice device,
                                         const std::vector<const char*>& deviceExtensions) {
-    std::vector<vk::ExtensionProperties> availableExtensions =
-        device.enumerateDeviceExtensionProperties();
-
     std::set<std::string> requiredExtensions{deviceExtensions.begin(), deviceExtensions.end()};
-    for (const auto& extension : availableExtensions) {
+    for (const auto& extension : device.enumerateDeviceExtensionProperties()) {
         requiredExtensions.erase(extension.extensionName);
     }
-
-    if (!requiredExtensions.empty()) {
-        return false;
-    }
-
-    std::cout << "Check Device Extension Support: All OK" << std::endl;
-    for (auto& extension : deviceExtensions) {
-        std::cout << "    " << extension << std::endl;
-    }
-
-    return true;
+    return requiredExtensions.empty();
 }
 
 inline SwapChainSupportDetails querySwapChainSupport(vk::PhysicalDevice device,
@@ -186,14 +173,14 @@ inline bool isDeviceSuitable(vk::PhysicalDevice device,
                              const std::vector<const char*>& deviceExtensions) {
     bool extensionsSupported = checkDeviceExtensionSupport(device, deviceExtensions);
 
-    bool swapChainAdequate = false;
+    bool swapchainAdequate = false;
     if (extensionsSupported) {
-        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device, surface);
-        swapChainAdequate =
-            !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
+        SwapChainSupportDetails swapchainSupport = querySwapChainSupport(device, surface);
+        swapchainAdequate =
+            !swapchainSupport.formats.empty() && !swapchainSupport.presentModes.empty();
     }
 
-    return extensionsSupported && swapChainAdequate;
+    return extensionsSupported && swapchainAdequate;
 }
 
 inline vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance,
@@ -293,17 +280,17 @@ inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
                                               uint32_t height) {
     std::cout << "Create Swap Chain" << std::endl;
 
-    SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice, surface);
+    SwapChainSupportDetails swapchainSupport = querySwapChainSupport(physicalDevice, surface);
 
-    vk::SurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
-    vk::PresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
-    vk::Extent2D extent = chooseSwapExtent(swapChainSupport.capabilities, width, height);
+    vk::SurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapchainSupport.formats);
+    vk::PresentModeKHR presentMode = chooseSwapPresentMode(swapchainSupport.presentModes);
+    vk::Extent2D extent = chooseSwapExtent(swapchainSupport.capabilities, width, height);
 
-    uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+    uint32_t imageCount = swapchainSupport.capabilities.minImageCount + 1;
 
-    if (swapChainSupport.capabilities.maxImageCount > 0 &&
-        imageCount > swapChainSupport.capabilities.maxImageCount) {
-        imageCount = swapChainSupport.capabilities.maxImageCount;
+    if (swapchainSupport.capabilities.maxImageCount > 0 &&
+        imageCount > swapchainSupport.capabilities.maxImageCount) {
+        imageCount = swapchainSupport.capabilities.maxImageCount;
     }
 
     vk::SwapchainCreateInfoKHR createInfo{};
@@ -317,16 +304,13 @@ inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
                        vk::ImageUsageFlagBits::eTransferSrc)  // TODO: remove
         .setImageSharingMode(vk::SharingMode::eExclusive)
         .setQueueFamilyIndices(nullptr)
-        .setPreTransform(swapChainSupport.capabilities.currentTransform)
+        .setPreTransform(swapchainSupport.capabilities.currentTransform)
         .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
         .setPresentMode(presentMode)
         .setClipped(VK_TRUE)
         .setOldSwapchain(nullptr)
         .setQueueFamilyIndices(queueFamilyIndex);
 
-    // TODO:
-    // swapChainImageFormat = surfaceFormat.format;
-    // swapChainExtent = extent;
     return device.createSwapchainKHRUnique(createInfo);
 }
 
