@@ -31,12 +31,16 @@ public:
 private:
     GLFWwindow* window = nullptr;
 
+    vk::PhysicalDevice physicalDevice;
+    vk::PhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
+    uint32_t queueFamilyIndex{};
+    vk::PhysicalDeviceRayTracingPipelinePropertiesKHR rayTracingPipelineProperties{};
+
     vk::UniqueInstance instance;
     vk::UniqueDebugUtilsMessengerEXT debugUtilsMessenger;
     vk::UniqueSurfaceKHR surface;
     vk::UniqueDevice device;
-    vk::Queue graphicsQueue;
-
+    vk::Queue queue;
     vk::UniqueSwapchainKHR swapchain;
     std::vector<vk::Image> swapchainImages;
     std::vector<vk::UniqueImageView> swapchainImageViews;
@@ -67,26 +71,37 @@ private:
     }
 
     void initVulkan() {
+        std::vector<const char*> layers = {"VK_LAYER_KHRONOS_validation"};
+
         std::vector<const char*> deviceExtensions = {
-            // レイトレーシング拡張
+            // Swapchain
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            // レイトレーシング
+            VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
             VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
             VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+            VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
         };
-        vkutils::addDeviceExtensions(deviceExtensions);
 
-        vkutils::enableDebugMessage();
-
-        instance = vkutils::createInstance();
+        instance = vkutils::createInstance(layers);
         debugUtilsMessenger = vkutils::createDebugMessenger(instance.get());
         surface = vkutils::createSurface(instance.get(), window);
-        device = vkutils::createLogicalDevice(instance.get(), surface.get());
-        graphicsQueue = vkutils::getGraphicsQueue(device.get());
+        physicalDevice =
+            vkutils::pickPhysicalDevice(instance.get(), surface.get(), deviceExtensions);
+        queueFamilyIndex = vkutils::findGeneralQueueFamilies(physicalDevice, surface.get());
+        device = vkutils::createLogicalDevice(physicalDevice, queueFamilyIndex, deviceExtensions);
+        queue = device->getQueue(queueFamilyIndex, 0);
 
-        swapchain = vkutils::createSwapChain(device.get(), surface.get(), WIDTH, HEIGHT);
-        swapchainImages = vkutils::getSwapChainImages(device.get(), swapchain.get());
+        rayTracingPipelineProperties = vkutils::getRayTracingProps(physicalDevice);
 
-        commandPool = vkutils::createCommandPool(device.get());
-        drawCommandBuffers = vkutils::createDrawCommandBuffers(device.get(), commandPool.get());
+        swapchain = vkutils::createSwapchain(physicalDevice, device.get(), surface.get(),
+                                             queueFamilyIndex, WIDTH, HEIGHT);
+        swapchainImages = device->getSwapchainImagesKHR(swapchain.get());
+
+        commandPool = vkutils::createCommandPool(device.get(), queueFamilyIndex);
+        drawCommandBuffers = vkutils::createDrawCommandBuffers(device.get(), commandPool.get(),
+                                                               swapchainImages.size());
 
         createSwapchainImageViews();
         createBottomLevelAS();
@@ -115,7 +130,7 @@ private:
                                     vk::ImageLayout::ePresentSrcKHR,
                                     {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
         }
-        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
+        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), queue);
     }
 
     void createBottomLevelAS() {
@@ -196,7 +211,7 @@ private:
         auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
         commandBuffer->buildAccelerationStructuresKHR(accelerationBuildGeometryInfo,
                                                       &accelerationStructureBuildRangeInfo);
-        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
+        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), queue);
 
         // Bottom Level AS のハンドルを取得する
         blas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({blas.handle.get()});
@@ -276,7 +291,7 @@ private:
         auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
         commandBuffer->buildAccelerationStructuresKHR(accelerationBuildGeometryInfo,
                                                       &accelerationStructureBuildRangeInfo);
-        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
+        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), queue);
 
         // Bottom Level AS のハンドルを取得する
         tlas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({tlas.handle.get()});
@@ -378,8 +393,9 @@ private:
     }
 
     void createShaderBindingTable() {
-        const uint32_t handleSize = vkutils::getShaderGroupHandleSize();
-        const uint32_t handleSizeAligned = vkutils::getHandleSizeAligned();
+        const uint32_t handleSize = rayTracingPipelineProperties.shaderGroupHandleSize;
+        const uint32_t handleSizeAligned =
+            vkutils::getHandleSizeAligned(rayTracingPipelineProperties);
         const uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
         const uint32_t sbtSize = groupCount * handleSizeAligned;
 
@@ -466,7 +482,8 @@ private:
         vkutils::setImageLayout(commandBuffer, image, vk::ImageLayout::ePresentSrcKHR,
                                 vk::ImageLayout::eGeneral, subresourceRange);
 
-        const uint32_t handleSizeAligned = vkutils::getHandleSizeAligned();
+        const uint32_t handleSizeAligned =
+            vkutils::getHandleSizeAligned(rayTracingPipelineProperties);
 
         vk::StridedDeviceAddressRegionKHR raygenShaderSbtEntry{};
         raygenShaderSbtEntry.setDeviceAddress(raygenShaderBindingTable.deviceAddress)
@@ -537,13 +554,14 @@ private:
         submitInfo.setWaitDstStageMask(waitStage);
         submitInfo.setCommandBuffers(drawCommandBuffers[imageIndex].get());
         submitInfo.setWaitSemaphores(imageAvailableSemaphore.get());
-        graphicsQueue.submit(submitInfo);
-
-        graphicsQueue.waitIdle();
+        queue.submit(submitInfo);
+        queue.waitIdle();
 
         // 表示する
-        graphicsQueue.presentKHR(
-            vk::PresentInfoKHR{}.setSwapchains(swapchain.get()).setImageIndices(imageIndex));
+        vk::PresentInfoKHR presentInfo{};
+        presentInfo.setSwapchains(swapchain.get());
+        presentInfo.setImageIndices(imageIndex);
+        queue.presentKHR(presentInfo);
 
         frame++;
     }
@@ -567,7 +585,8 @@ private:
         buffer.deviceMemory = device->allocateMemoryUnique(
             vk::MemoryAllocateInfo{}
                 .setAllocationSize(memoryRequirements.size)
-                .setMemoryTypeIndex(vkutils::getMemoryType(memoryRequirements, memoryProperty))
+                .setMemoryTypeIndex(
+                    vkutils::getMemoryType(physicalDevice, memoryRequirements, memoryProperty))
                 .setPNext(&memoryFlagsInfo));
         device->bindBufferMemory(buffer.handle.get(), buffer.deviceMemory.get(), 0);
 
@@ -604,13 +623,14 @@ private:
         vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{
             vk::MemoryAllocateFlagBits::eDeviceAddress};
 
-        buffer.deviceMemory = device->allocateMemoryUnique(
-            vk::MemoryAllocateInfo{}
-                .setAllocationSize(memoryRequirements.size)
-                .setMemoryTypeIndex(vkutils::getMemoryType(
-                    memoryRequirements, vk::MemoryPropertyFlagBits::eHostVisible |
-                                            vk::MemoryPropertyFlagBits::eHostCoherent))
-                .setPNext(&memoryAllocateFlagsInfo));
+        buffer.deviceMemory =
+            device->allocateMemoryUnique(vk::MemoryAllocateInfo{}
+                                             .setAllocationSize(memoryRequirements.size)
+                                             .setMemoryTypeIndex(vkutils::getMemoryType(
+                                                 physicalDevice, memoryRequirements,
+                                                 vk::MemoryPropertyFlagBits::eHostVisible |
+                                                     vk::MemoryPropertyFlagBits::eHostCoherent))
+                                             .setPNext(&memoryAllocateFlagsInfo));
         device->bindBufferMemory(buffer.handle.get(), buffer.deviceMemory.get(), 0);
 
         return buffer;
@@ -634,7 +654,7 @@ private:
             vk::MemoryAllocateInfo{}
                 .setAllocationSize(memoryRequirements.size)
                 .setMemoryTypeIndex(vkutils::getMemoryType(
-                    memoryRequirements, vk::MemoryPropertyFlagBits::eDeviceLocal))
+                    physicalDevice, memoryRequirements, vk::MemoryPropertyFlagBits::eDeviceLocal))
                 .setPNext(&memoryAllocateFlagsInfo));
         device->bindBufferMemory(scratchBuffer.handle.get(), scratchBuffer.deviceMemory.get(), 0);
 

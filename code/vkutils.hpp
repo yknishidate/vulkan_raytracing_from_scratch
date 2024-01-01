@@ -21,37 +21,10 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 namespace vkutils {
 // 構造体
-struct QueueFamilyIndices {
-    std::optional<uint32_t> graphicsFamily;
-    std::optional<uint32_t> presentFamily;
-
-    bool isComplete() const { return graphicsFamily.has_value() && presentFamily.has_value(); }
-};
-
 struct SwapChainSupportDetails {
     vk::SurfaceCapabilitiesKHR capabilities;
     std::vector<vk::SurfaceFormatKHR> formats;
     std::vector<vk::PresentModeKHR> presentModes;
-};
-
-// 変数
-inline static vk::PhysicalDevice physicalDevice = nullptr;
-inline static uint32_t swapChainImagesSize;
-inline static vk::Format swapChainImageFormat;
-inline static vk::Extent2D swapChainExtent;
-inline static vk::PhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
-inline static QueueFamilyIndices queueFamilyIndices;
-inline static vk::PhysicalDeviceRayTracingPipelinePropertiesKHR rayTracingPipelineProperties{};
-
-inline static bool enableValidationLayers = false;
-
-inline static std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
-
-inline static std::vector<const char*> deviceExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-    VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
-    VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
-    VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
 };
 
 // 関数定義
@@ -64,20 +37,10 @@ debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeveri
     return VK_FALSE;
 }
 
-inline void addDeviceExtensions(const std::vector<const char*>& extensionNames) {
-    for (auto& name : extensionNames) {
-        deviceExtensions.push_back(name);
-    }
-}
-
-inline void enableDebugMessage() {
-    enableValidationLayers = true;
-}
-
-inline bool checkValidationLayerSupport() {
+inline bool checkLayerSupport(const std::vector<const char*>& layers) {
     std::vector<vk::LayerProperties> availableLayers = vk::enumerateInstanceLayerProperties();
 
-    for (const char* layerName : validationLayers) {
+    for (const char* layerName : layers) {
         bool layerFound = false;
         for (const auto& layerProperties : availableLayers) {
             if (strcmp(layerName, layerProperties.layerName) == 0) {
@@ -97,13 +60,11 @@ inline std::vector<const char*> getRequiredExtensions() {
     const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
     std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-    if (enableValidationLayers) {
-        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-    }
+    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     return extensions;
 }
 
-inline vk::UniqueInstance createInstance() {
+inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers) {
     std::cout << "Create Instance" << std::endl;
 
     // インスタンスに依存しない関数ポインタを取得する
@@ -112,8 +73,8 @@ inline vk::UniqueInstance createInstance() {
         dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
     VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
-    if (enableValidationLayers && !checkValidationLayerSupport()) {
-        throw std::runtime_error("validation layers requested, but not available!");
+    if (!checkLayerSupport(layers)) {
+        throw std::runtime_error("Requested layers not available.");
     }
 
     vk::ApplicationInfo appInfo{"Application", VK_MAKE_VERSION(1, 0, 0), "Engine",
@@ -121,27 +82,22 @@ inline vk::UniqueInstance createInstance() {
 
     auto extensions = getRequiredExtensions();
 
-    vk::UniqueInstance instance;
-    if (enableValidationLayers) {
-        // デバッグモードの場合
-        vk::DebugUtilsMessageSeverityFlagsEXT severityFlags{
-            vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-            vk::DebugUtilsMessageSeverityFlagBitsEXT::eError};
+    // デバッグモードの場合
+    vk::DebugUtilsMessageSeverityFlagsEXT severityFlags{
+        vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+        vk::DebugUtilsMessageSeverityFlagBitsEXT::eError};
 
-        vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags{
-            vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-            vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
-            vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation};
+    vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags{
+        vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
+        vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
+        vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation};
 
-        vk::StructureChain<vk::InstanceCreateInfo, vk::DebugUtilsMessengerCreateInfoEXT> createInfo{
-            {{}, &appInfo, validationLayers, extensions},
-            {{}, severityFlags, messageTypeFlags, &debugUtilsMessengerCallback}};
-        instance = vk::createInstanceUnique(createInfo.get<vk::InstanceCreateInfo>());
-    } else {
-        // リリースモードの場合
-        vk::InstanceCreateInfo createInfo{{}, &appInfo, {}, extensions};
-        instance = vk::createInstanceUnique(createInfo, nullptr);
-    }
+    vk::StructureChain<vk::InstanceCreateInfo, vk::DebugUtilsMessengerCreateInfoEXT> createInfo{
+        {{}, &appInfo, layers, extensions},
+        {{}, severityFlags, messageTypeFlags, &debugUtilsMessengerCallback}};
+
+    vk::UniqueInstance instance =
+        vk::createInstanceUnique(createInfo.get<vk::InstanceCreateInfo>());
 
     // 全ての関数ポインタを取得する
     VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
@@ -150,9 +106,6 @@ inline vk::UniqueInstance createInstance() {
 }
 
 inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instance) {
-    if (!enableValidationLayers) {
-        return vk::UniqueDebugUtilsMessengerEXT{};
-    }
     std::cout << "Create Debug Messenger" << std::endl;
 
     vk::DebugUtilsMessageSeverityFlagsEXT severityFlags{
@@ -181,33 +134,27 @@ inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance, GLFWwindow* win
     return vk::UniqueSurfaceKHR{vk::SurfaceKHR(_surface), _deleter};
 }
 
-inline void findQueueFamilies(vk::PhysicalDevice device, vk::SurfaceKHR surface) {
-    std::vector<vk::QueueFamilyProperties> queueFamilies = device.getQueueFamilyProperties();
-
-    uint32_t i = 0;
-    for (const auto& queueFamily : queueFamilies) {
-        if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) {
-            queueFamilyIndices.graphicsFamily = i;
+inline uint32_t findGeneralQueueFamilies(vk::PhysicalDevice physicalDevice,
+                                         vk::SurfaceKHR surface) {
+    std::vector<vk::QueueFamilyProperties> queueFamilies =
+        physicalDevice.getQueueFamilyProperties();
+    for (uint32_t i = 0; i < queueFamilies.size(); i++) {
+        vk::Bool32 presentSupport = physicalDevice.getSurfaceSupportKHR(i, surface);
+        if (queueFamilies[i].queueFlags & vk::QueueFlagBits::eGraphics && presentSupport) {
+            return i;
         }
-
-        if (VkBool32 presentSupport = device.getSurfaceSupportKHR(i, surface); presentSupport) {
-            queueFamilyIndices.presentFamily = i;
-        }
-
-        if (queueFamilyIndices.isComplete()) {
-            break;
-        }
-
-        i++;
     }
+
+    std::cerr << "Failed to find general queue family.\n";
+    std::abort();
 }
 
-inline bool checkDeviceExtensionSupport(vk::PhysicalDevice device) {
+inline bool checkDeviceExtensionSupport(vk::PhysicalDevice device,
+                                        const std::vector<const char*>& deviceExtensions) {
     std::vector<vk::ExtensionProperties> availableExtensions =
         device.enumerateDeviceExtensionProperties();
 
     std::set<std::string> requiredExtensions{deviceExtensions.begin(), deviceExtensions.end()};
-
     for (const auto& extension : availableExtensions) {
         requiredExtensions.erase(extension.extensionName);
     }
@@ -234,10 +181,10 @@ inline SwapChainSupportDetails querySwapChainSupport(vk::PhysicalDevice device,
     return details;
 }
 
-inline bool isDeviceSuitable(vk::PhysicalDevice device, vk::SurfaceKHR surface) {
-    findQueueFamilies(device, surface);
-
-    bool extensionsSupported = checkDeviceExtensionSupport(device);
+inline bool isDeviceSuitable(vk::PhysicalDevice device,
+                             vk::SurfaceKHR surface,
+                             const std::vector<const char*>& deviceExtensions) {
+    bool extensionsSupported = checkDeviceExtensionSupport(device, deviceExtensions);
 
     bool swapChainAdequate = false;
     if (extensionsSupported) {
@@ -246,50 +193,44 @@ inline bool isDeviceSuitable(vk::PhysicalDevice device, vk::SurfaceKHR surface) 
             !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
     }
 
-    return queueFamilyIndices.isComplete() && extensionsSupported && swapChainAdequate;
+    return extensionsSupported && swapChainAdequate;
 }
 
-inline void pickPhysicalDevice(vk::Instance instance, vk::SurfaceKHR surface) {
+inline vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance,
+                                             vk::SurfaceKHR surface,
+                                             const std::vector<const char*>& deviceExtensions) {
     // 全ての物理デバイスを取得
     std::vector<vk::PhysicalDevice> devices = instance.enumeratePhysicalDevices();
 
     // 適切な物理デバイスを選択
     for (const auto& device : devices) {
-        if (isDeviceSuitable(device, surface)) {
-            physicalDevice = device;
-            break;
+        if (isDeviceSuitable(device, surface, deviceExtensions)) {
+            return device;
         }
     }
 
-    if (!physicalDevice) {
-        throw std::runtime_error("failed to find a suitable GPU!");
-    }
+    std::cerr << "Failed to find physical device.\n";
+    std::abort();
 }
 
-inline vk::UniqueDevice createLogicalDevice(vk::Instance instance, vk::SurfaceKHR surface) {
+inline auto getRayTracingProps(vk::PhysicalDevice physicalDevice) {
+    auto deviceProperties =
+        physicalDevice.getProperties2<vk::PhysicalDeviceProperties2,
+                                      vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
+    return deviceProperties.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
+}
+
+inline vk::UniqueDevice createLogicalDevice(vk::PhysicalDevice physicalDevice,
+                                            uint32_t queueFamilyIndex,
+                                            const std::vector<const char*>& deviceExtensions) {
     std::cout << "Create Logical Device" << std::endl;
 
-    pickPhysicalDevice(instance, surface);
-    physicalDeviceMemoryProperties = physicalDevice.getMemoryProperties();
-
     float queuePriority = 1.0f;
-    vk::DeviceQueueCreateInfo queueCreateInfo{
-        {}, queueFamilyIndices.graphicsFamily.value(), 1, &queuePriority};
+    vk::DeviceQueueCreateInfo queueCreateInfo{{}, queueFamilyIndex, 1, &queuePriority};
 
     vk::DeviceCreateInfo deviceCreateInfo{};
     deviceCreateInfo.setQueueCreateInfos(queueCreateInfo)
         .setPEnabledExtensionNames(deviceExtensions);
-    if (enableValidationLayers) {
-        deviceCreateInfo.setPEnabledLayerNames(validationLayers);
-    }
-
-    vk::StructureChain<vk::PhysicalDeviceProperties2,
-                       vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>
-        deviceProperties =
-            physicalDevice.getProperties2<vk::PhysicalDeviceProperties2,
-                                          vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
-    rayTracingPipelineProperties =
-        deviceProperties.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
 
     vk::PhysicalDeviceFeatures2 features2 = physicalDevice.getFeatures2();
 
@@ -305,10 +246,6 @@ inline vk::UniqueDevice createLogicalDevice(vk::Instance instance, vk::SurfaceKH
     VULKAN_HPP_DEFAULT_DISPATCHER.init(device.get());
 
     return device;
-}
-
-inline vk::Queue getGraphicsQueue(vk::Device device) {
-    return device.getQueue(queueFamilyIndices.graphicsFamily.value(), 0);
 }
 
 inline vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
@@ -348,8 +285,10 @@ inline vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR capabilities,
     }
 }
 
-inline vk::UniqueSwapchainKHR createSwapChain(vk::Device device,
+inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
+                                              vk::Device device,
                                               vk::SurfaceKHR surface,
+                                              uint32_t queueFamilyIndex,
                                               uint32_t width,
                                               uint32_t height) {
     std::cout << "Create Swap Chain" << std::endl;
@@ -382,39 +321,21 @@ inline vk::UniqueSwapchainKHR createSwapChain(vk::Device device,
         .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
         .setPresentMode(presentMode)
         .setClipped(VK_TRUE)
-        .setOldSwapchain(nullptr);
+        .setOldSwapchain(nullptr)
+        .setQueueFamilyIndices(queueFamilyIndex);
 
-    if (queueFamilyIndices.graphicsFamily != queueFamilyIndices.presentFamily) {
-        std::array indices{queueFamilyIndices.graphicsFamily.value(),
-                           queueFamilyIndices.presentFamily.value()};
-        createInfo.setImageSharingMode(vk::SharingMode::eConcurrent);
-        createInfo.setQueueFamilyIndices(indices);
-    } else {
-        createInfo.setQueueFamilyIndices(queueFamilyIndices.graphicsFamily.value());
-    }
-
-    swapChainImageFormat = surfaceFormat.format;
-    swapChainExtent = extent;
+    // TODO:
+    // swapChainImageFormat = surfaceFormat.format;
+    // swapChainExtent = extent;
     return device.createSwapchainKHRUnique(createInfo);
 }
 
-inline std::vector<vk::Image> getSwapChainImages(vk::Device device, vk::SwapchainKHR swapChain) {
-    auto images = device.getSwapchainImagesKHR(swapChain);
-    swapChainImagesSize = images.size();
-    return images;
-}
-
-inline vk::SurfaceFormatKHR getSwapChainImageFormat() {
-    return swapChainImageFormat;
-}
-
-inline vk::Extent2D getSwapChainExtent() {
-    return swapChainExtent;
-}
-
-inline uint32_t getMemoryType(vk::MemoryRequirements memoryRequirements,
+inline uint32_t getMemoryType(vk::PhysicalDevice physicalDevice,
+                              vk::MemoryRequirements memoryRequirements,
                               vk::MemoryPropertyFlags memoryProperties) {
     uint32_t result = -1;
+
+    auto physicalDeviceMemoryProperties = physicalDevice.getMemoryProperties();
     for (uint32_t i = 0; i < VK_MAX_MEMORY_TYPES; ++i) {
         if (memoryRequirements.memoryTypeBits & (1 << i)) {
             if ((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & memoryProperties) ==
@@ -430,11 +351,11 @@ inline uint32_t getMemoryType(vk::MemoryRequirements memoryRequirements,
     return result;
 }
 
-inline vk::UniqueCommandPool createCommandPool(vk::Device device) {
-    return device.createCommandPoolUnique(
-        vk::CommandPoolCreateInfo{}
-            .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
-            .setQueueFamilyIndex(queueFamilyIndices.graphicsFamily.value()));
+inline vk::UniqueCommandPool createCommandPool(vk::Device device, uint32_t queueFamilyIndex) {
+    vk::CommandPoolCreateInfo commandPoolCreateInfo{};
+    commandPoolCreateInfo.setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
+    commandPoolCreateInfo.setQueueFamilyIndex(queueFamilyIndex);
+    return device.createCommandPoolUnique(commandPoolCreateInfo);
 }
 
 inline vk::UniqueCommandBuffer createCommandBuffer(vk::Device device,
@@ -457,13 +378,13 @@ inline vk::UniqueCommandBuffer createCommandBuffer(vk::Device device,
 }
 
 inline std::vector<vk::UniqueCommandBuffer> createDrawCommandBuffers(vk::Device device,
-                                                                     vk::CommandPool commandPool) {
-    std::vector<vk::UniqueCommandBuffer> commandBuffers =
-        device.allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}
-                                                .setCommandPool(commandPool)
-                                                .setLevel(vk::CommandBufferLevel::ePrimary)
-                                                .setCommandBufferCount(swapChainImagesSize));
-    return commandBuffers;
+                                                                     vk::CommandPool commandPool,
+                                                                     uint32_t count) {
+    vk::CommandBufferAllocateInfo allocateInfo{};
+    allocateInfo.setCommandPool(commandPool);
+    allocateInfo.setLevel(vk::CommandBufferLevel::ePrimary);
+    allocateInfo.setCommandBufferCount(count);
+    return device.allocateCommandBuffersUnique(allocateInfo);
 }
 
 inline void submitCommandBuffer(vk::Device device,
@@ -503,18 +424,6 @@ inline vk::UniqueShaderModule createShaderModule(vk::Device device, const std::s
         {{}, code.size(), reinterpret_cast<const uint32_t*>(code.data())});
 
     return shaderModule;
-}
-
-inline uint32_t getShaderGroupHandleSize() {
-    return rayTracingPipelineProperties.shaderGroupHandleSize;
-}
-
-inline uint32_t getShaderGroupHandleAlignment() {
-    return rayTracingPipelineProperties.shaderGroupHandleAlignment;
-}
-
-inline uint32_t alignedSize(uint32_t value, uint32_t alignment) {
-    return (value + alignment - 1) & ~(alignment - 1);
 }
 
 inline void setImageLayout(
@@ -596,7 +505,9 @@ inline void setImageLayout(
     );
 }
 
-inline uint32_t getHandleSizeAligned() {
-    return alignedSize(getShaderGroupHandleSize(), getShaderGroupHandleAlignment());
+inline uint32_t getHandleSizeAligned(vk::PhysicalDeviceRayTracingPipelinePropertiesKHR props) {
+    const uint32_t handleSize = props.shaderGroupHandleSize;
+    const uint32_t handleAlignment = props.shaderGroupHandleAlignment;
+    return (handleSize + handleAlignment - 1) & ~(handleAlignment - 1);
 }
 }  // namespace vkutils
