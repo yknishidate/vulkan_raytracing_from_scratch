@@ -539,34 +539,37 @@ private:
         static int frame = 0;
         std::cout << frame << '\n';
 
-        // 次に表示する画像のインデックスをスワップチェインから取得する
+        // Create semaphore
         vk::SemaphoreCreateInfo semaphoreCreateInfo{};
         vk::UniqueSemaphore imageAvailableSemaphore =
             device->createSemaphoreUnique(semaphoreCreateInfo);
-        auto result = device->acquireNextImageKHR(*swapchain,  // swapchain
-                                                  std::numeric_limits<uint64_t>::max(),  // timeout
+
+        // Acquire next image
+        auto result = device->acquireNextImageKHR(*swapchain, std::numeric_limits<uint64_t>::max(),
                                                   *imageAvailableSemaphore);
         if (result.result != vk::Result::eSuccess) {
             std::cerr << "Failed to acquire next image.\n";
             std::abort();
         }
-
         uint32_t imageIndex = result.value;
 
+        // Update descriptor sets using current image
         updateDescriptorSets(*swapchainImageViews[imageIndex]);
 
         recordCommandBuffer(*commandBuffers[imageIndex], swapchainImages[imageIndex]);
 
-        // レイトレーシングを行うコマンドバッファを実行する
+        // Submit command buffer
         vk::PipelineStageFlags waitStage{vk::PipelineStageFlagBits::eRayTracingShaderKHR};
         vk::SubmitInfo submitInfo{};
         submitInfo.setWaitDstStageMask(waitStage);
         submitInfo.setCommandBuffers(*commandBuffers[imageIndex]);
         submitInfo.setWaitSemaphores(*imageAvailableSemaphore);
         queue.submit(submitInfo);
+
+        // Wait
         queue.waitIdle();
 
-        // 表示する
+        // Present
         vk::PresentInfoKHR presentInfo{};
         presentInfo.setSwapchains(*swapchain);
         presentInfo.setImageIndices(imageIndex);
@@ -583,17 +586,15 @@ private:
                         vk::BufferUsageFlags usage,
                         vk::MemoryPropertyFlags memoryProperty,
                         const void* data = nullptr) {
-        // Bufferオブジェクトを作成
+        // Create buffer
         vk::BufferCreateInfo bufferCreateInfo{};
         bufferCreateInfo.setSize(size);
         bufferCreateInfo.setUsage(usage);
         bufferCreateInfo.setQueueFamilyIndexCount(0);
+        vk::UniqueBuffer buffer = device->createBufferUnique(bufferCreateInfo);
 
-        Buffer buffer{};
-        buffer.handle = device->createBufferUnique(bufferCreateInfo);
-
-        // メモリを確保してバインドする
-        auto memoryRequirements = device->getBufferMemoryRequirements(*buffer.handle);
+        // Allocate memory
+        auto memoryRequirements = device->getBufferMemoryRequirements(*buffer);
         vk::MemoryAllocateFlagsInfo memoryFlagsInfo{};
         if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
             memoryFlagsInfo.flags = vk::MemoryAllocateFlagBits::eDeviceAddress;
@@ -604,20 +605,25 @@ private:
         allocateInfo.setMemoryTypeIndex(
             vkutils::getMemoryType(physicalDevice, memoryRequirements, memoryProperty));
         allocateInfo.setPNext(&memoryFlagsInfo);
-        buffer.deviceMemory = device->allocateMemoryUnique(allocateInfo);
-        device->bindBufferMemory(*buffer.handle, *buffer.deviceMemory, 0);
+        vk::UniqueDeviceMemory deviceMemory = device->allocateMemoryUnique(allocateInfo);
 
-        // データをメモリにコピーする
+        // Bind buffer to memory
+        device->bindBufferMemory(*buffer, *deviceMemory, 0);
+
+        // Copy data
         if (data) {
-            void* dataPtr = device->mapMemory(*buffer.deviceMemory, 0, size);
+            void* dataPtr = device->mapMemory(*deviceMemory, 0, size);
             memcpy(dataPtr, data, size);
-            device->unmapMemory(*buffer.deviceMemory);
+            device->unmapMemory(*deviceMemory);
         }
 
-        // バッファのデバイスアドレスを取得する
-        vk::BufferDeviceAddressInfoKHR bufferDeviceAI{*buffer.handle};
-        buffer.deviceAddress = device->getBufferAddressKHR(&bufferDeviceAI);
+        // Get address
+        vk::DeviceAddress deviceAddress{};
+        if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
+            vk::BufferDeviceAddressInfoKHR bufferDeviceAI{*buffer};
+            deviceAddress = device->getBufferAddressKHR(&bufferDeviceAI);
+        }
 
-        return buffer;
+        return {std::move(buffer), std::move(deviceMemory), deviceAddress};
     }
 };
