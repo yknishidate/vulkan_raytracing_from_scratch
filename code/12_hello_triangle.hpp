@@ -154,7 +154,10 @@ private:
         vk::AccelerationStructureKHR handle = *accelStruct.handle;
 
         // スクラッチバッファを作成する
-        Buffer scratchBuffer = createScratchBuffer(buildSizesInfo.buildScratchSize);
+        Buffer scratchBuffer = createBuffer(
+            buildSizesInfo.buildScratchSize,
+            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            vk::MemoryPropertyFlagBits::eDeviceLocal);
 
         // ビルド情報を作成する
         vk::AccelerationStructureBuildGeometryInfoKHR geometryInfo{};
@@ -612,43 +615,9 @@ private:
         }
 
         // バッファのデバイスアドレスを取得する
-        buffer.deviceAddress = getBufferDeviceAddress(*buffer.handle);
+        vk::BufferDeviceAddressInfoKHR bufferDeviceAI{*buffer.handle};
+        buffer.deviceAddress = device->getBufferAddressKHR(&bufferDeviceAI);
 
         return buffer;
-    }
-
-    uint64_t getBufferDeviceAddress(vk::Buffer buffer) {
-        vk::BufferDeviceAddressInfoKHR bufferDeviceAI{buffer};
-        return device->getBufferAddressKHR(&bufferDeviceAI);
-    }
-
-    Buffer createScratchBuffer(vk::DeviceSize size) {
-        Buffer scratchBuffer;
-
-        // バッファを作成する
-        vk::BufferCreateInfo bufferCreateInfo{};
-        bufferCreateInfo.setSize(size);
-        bufferCreateInfo.setUsage(vk::BufferUsageFlagBits::eStorageBuffer |
-                                  vk::BufferUsageFlagBits::eShaderDeviceAddress);
-
-        scratchBuffer.handle = device->createBufferUnique(bufferCreateInfo);
-
-        // メモリを確保してバインドする
-        auto memoryRequirements = device->getBufferMemoryRequirements(*scratchBuffer.handle);
-        vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{};
-        memoryAllocateFlagsInfo.setFlags(vk::MemoryAllocateFlagBits::eDeviceAddress);
-
-        vk::MemoryAllocateInfo allocateInfo{};
-        allocateInfo.setAllocationSize(memoryRequirements.size);
-        allocateInfo.setMemoryTypeIndex(vkutils::getMemoryType(
-            physicalDevice, memoryRequirements, vk::MemoryPropertyFlagBits::eDeviceLocal));
-        allocateInfo.setPNext(&memoryAllocateFlagsInfo);
-        scratchBuffer.deviceMemory = device->allocateMemoryUnique(allocateInfo);
-        device->bindBufferMemory(*scratchBuffer.handle, *scratchBuffer.deviceMemory, 0);
-
-        // バッファのデバイスアドレスを取得する
-        scratchBuffer.deviceAddress = getBufferDeviceAddress(*scratchBuffer.handle);
-
-        return scratchBuffer;
     }
 };
