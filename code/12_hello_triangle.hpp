@@ -374,13 +374,13 @@ private:
         shaderGroups[chitIndex].setIntersectionShader(VK_SHADER_UNUSED_KHR);
 
         // レイトレーシングパイプラインを作成する
+        vk::RayTracingPipelineCreateInfoKHR pipelineCreateInfo{};
+        pipelineCreateInfo.setStages(shaderStages);
+        pipelineCreateInfo.setGroups(shaderGroups);
+        pipelineCreateInfo.setMaxPipelineRayRecursionDepth(1);
+        pipelineCreateInfo.setLayout(*pipelineLayout);
         auto result =
-            device->createRayTracingPipelineKHRUnique(nullptr, nullptr,
-                                                      vk::RayTracingPipelineCreateInfoKHR{}
-                                                          .setStages(shaderStages)
-                                                          .setGroups(shaderGroups)
-                                                          .setMaxPipelineRayRecursionDepth(1)
-                                                          .setLayout(*pipelineLayout));
+            device->createRayTracingPipelineKHRUnique(nullptr, nullptr, pipelineCreateInfo);
         if (result.result != vk::Result::eSuccess) {
             std::cerr << "Failed to create ray tracing pipeline.\n";
             std::abort();
@@ -425,7 +425,8 @@ private:
         // まずはディスクリプタプールを用意する
         std::vector<vk::DescriptorPoolSize> poolSizes = {
             {vk::DescriptorType::eAccelerationStructureKHR, 1},
-            {vk::DescriptorType::eStorageImage, 1}};
+            {vk::DescriptorType::eStorageImage, 1},
+        };
 
         vk::DescriptorPoolCreateInfo descriptorPoolCreateInfo{};
         descriptorPoolCreateInfo.setPoolSizes(poolSizes);
@@ -442,37 +443,38 @@ private:
     }
 
     void updateDescriptorSets(vk::ImageView imageView) {
-        // Top Level ASをシェーダにバインドするためのディスクリプタ
-        vk::WriteDescriptorSetAccelerationStructureKHR descriptorAccelerationStructureInfo{};
-        descriptorAccelerationStructureInfo.setAccelerationStructures(*topAccel.handle);
+        std::vector<vk::WriteDescriptorSet> writes(2);
 
-        vk::WriteDescriptorSet accelerationStructureWrite{};
-        accelerationStructureWrite.setDstSet(*descriptorSet)
-            .setDstBinding(0)
-            .setDescriptorCount(1)
-            .setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR)
-            .setPNext(&descriptorAccelerationStructureInfo);
+        // Top Level ASをシェーダにバインドするためのディスクリプタ
+        vk::WriteDescriptorSetAccelerationStructureKHR accelInfo{};
+        accelInfo.setAccelerationStructures(*topAccel.handle);
+
+        writes[0].setDstSet(*descriptorSet);
+        writes[0].setDstBinding(0);
+        writes[0].setDescriptorCount(1);
+        writes[0].setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR);
+        writes[0].setPNext(&accelInfo);
 
         // Storage imageのためのディスクリプタ
         vk::DescriptorImageInfo imageDescriptor{};
-        imageDescriptor.setImageView(imageView).setImageLayout(vk::ImageLayout::eGeneral);
+        imageDescriptor.setImageView(imageView);
+        imageDescriptor.setImageLayout(vk::ImageLayout::eGeneral);
 
-        vk::WriteDescriptorSet resultImageWrite{};
-        resultImageWrite.setDstSet(*descriptorSet)
-            .setDescriptorType(vk::DescriptorType::eStorageImage)
-            .setDstBinding(1)
-            .setImageInfo(imageDescriptor);
+        writes[1].setDstSet(*descriptorSet);
+        writes[1].setDstBinding(1);
+        writes[1].setDescriptorType(vk::DescriptorType::eStorageImage);
+        writes[1].setImageInfo(imageDescriptor);
 
-        device->updateDescriptorSets({accelerationStructureWrite, resultImageWrite}, nullptr);
+        device->updateDescriptorSets(writes, nullptr);
     }
 
-    void buildCommandBuffers(vk::CommandBuffer commandBuffer, vk::Image image) {
+    void recordCommandBuffer(vk::CommandBuffer commandBuffer, vk::Image image) {
         vk::ImageSubresourceRange subresourceRange{};
-        subresourceRange.setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1);
+        subresourceRange.setAspectMask(vk::ImageAspectFlagBits::eColor);
+        subresourceRange.setBaseMipLevel(0);
+        subresourceRange.setLevelCount(1);
+        subresourceRange.setBaseArrayLayer(0);
+        subresourceRange.setLayerCount(1);
 
         commandBuffer.begin(vk::CommandBufferBeginInfo{});
 
@@ -482,20 +484,20 @@ private:
         const uint32_t handleSizeAligned =
             vkutils::getHandleSizeAligned(rayTracingPipelineProperties);
 
-        vk::StridedDeviceAddressRegionKHR raygenShaderSbtEntry{};
-        raygenShaderSbtEntry.setDeviceAddress(raygenShaderBindingTable.deviceAddress)
-            .setStride(handleSizeAligned)
-            .setSize(handleSizeAligned);
+        vk::StridedDeviceAddressRegionKHR raygenEntry{};
+        raygenEntry.setDeviceAddress(raygenShaderBindingTable.deviceAddress);
+        raygenEntry.setStride(handleSizeAligned);
+        raygenEntry.setSize(handleSizeAligned);
 
-        vk::StridedDeviceAddressRegionKHR missShaderSbtEntry{};
-        missShaderSbtEntry.setDeviceAddress(missShaderBindingTable.deviceAddress)
-            .setStride(handleSizeAligned)
-            .setSize(handleSizeAligned);
+        vk::StridedDeviceAddressRegionKHR missEntry{};
+        missEntry.setDeviceAddress(missShaderBindingTable.deviceAddress);
+        missEntry.setStride(handleSizeAligned);
+        missEntry.setSize(handleSizeAligned);
 
-        vk::StridedDeviceAddressRegionKHR hitShaderSbtEntry{};
-        hitShaderSbtEntry.setDeviceAddress(hitShaderBindingTable.deviceAddress)
-            .setStride(handleSizeAligned)
-            .setSize(handleSizeAligned);
+        vk::StridedDeviceAddressRegionKHR hitEntry{};
+        hitEntry.setDeviceAddress(hitShaderBindingTable.deviceAddress);
+        hitEntry.setStride(handleSizeAligned);
+        hitEntry.setSize(handleSizeAligned);
 
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
 
@@ -508,13 +510,13 @@ private:
         );
 
         // レイトレーシングを実行
-        commandBuffer.traceRaysKHR(raygenShaderSbtEntry,  // raygenShaderBindingTable
-                                   missShaderSbtEntry,    // missShaderBindingTable
-                                   hitShaderSbtEntry,     // hitShaderBindingTable
-                                   {},                    // callableShaderBindingTable
-                                   WIDTH,                 // width
-                                   HEIGHT,                // height
-                                   1                      // depth
+        commandBuffer.traceRaysKHR(raygenEntry,  // raygenShaderBindingTable
+                                   missEntry,    // missShaderBindingTable
+                                   hitEntry,     // hitShaderBindingTable
+                                   {},           // callableShaderBindingTable
+                                   WIDTH,        // width
+                                   HEIGHT,       // height
+                                   1             // depth
         );
 
         // スワップチェインの画像を提示用に設定
@@ -543,7 +545,7 @@ private:
 
         updateDescriptorSets(*swapchainImageViews[imageIndex]);
 
-        buildCommandBuffers(*commandBuffers[imageIndex], swapchainImages[imageIndex]);
+        recordCommandBuffer(*commandBuffers[imageIndex], swapchainImages[imageIndex]);
 
         // レイトレーシングを行うコマンドバッファを実行する
         vk::PipelineStageFlags waitStage{vk::PipelineStageFlagBits::eRayTracingShaderKHR};
@@ -558,7 +560,11 @@ private:
         vk::PresentInfoKHR presentInfo{};
         presentInfo.setSwapchains(*swapchain);
         presentInfo.setImageIndices(imageIndex);
-        queue.presentKHR(presentInfo);
+        vk::Result presentResult = queue.presentKHR(presentInfo);
+        if (presentResult != vk::Result::eSuccess) {
+            std::cerr << "Failed to present.\n";
+            std::abort();
+        }
 
         frame++;
     }
@@ -568,9 +574,13 @@ private:
                         vk::MemoryPropertyFlags memoryProperty,
                         const void* data = nullptr) {
         // Bufferオブジェクトを作成
+        vk::BufferCreateInfo bufferCreateInfo{};
+        bufferCreateInfo.setSize(size);
+        bufferCreateInfo.setUsage(usage);
+        bufferCreateInfo.setQueueFamilyIndexCount(0);
+
         Buffer buffer{};
-        buffer.handle = device->createBufferUnique(
-            vk::BufferCreateInfo{}.setSize(size).setUsage(usage).setQueueFamilyIndexCount(0));
+        buffer.handle = device->createBufferUnique(bufferCreateInfo);
 
         // メモリを確保してバインドする
         auto memoryRequirements = device->getBufferMemoryRequirements(*buffer.handle);
@@ -579,12 +589,12 @@ private:
             memoryFlagsInfo.flags = vk::MemoryAllocateFlagBits::eDeviceAddress;
         }
 
-        buffer.deviceMemory = device->allocateMemoryUnique(
-            vk::MemoryAllocateInfo{}
-                .setAllocationSize(memoryRequirements.size)
-                .setMemoryTypeIndex(
-                    vkutils::getMemoryType(physicalDevice, memoryRequirements, memoryProperty))
-                .setPNext(&memoryFlagsInfo));
+        vk::MemoryAllocateInfo allocateInfo{};
+        allocateInfo.setAllocationSize(memoryRequirements.size);
+        allocateInfo.setMemoryTypeIndex(
+            vkutils::getMemoryType(physicalDevice, memoryRequirements, memoryProperty));
+        allocateInfo.setPNext(&memoryFlagsInfo);
+        buffer.deviceMemory = device->allocateMemoryUnique(allocateInfo);
         device->bindBufferMemory(*buffer.handle, *buffer.deviceMemory, 0);
 
         // データをメモリにコピーする
@@ -608,26 +618,26 @@ private:
     Buffer createAccelerationStructureBuffer(
         vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo) {
         // Bufferオブジェクトを作成
+        vk::BufferCreateInfo bufferCreateInfo{};
+        bufferCreateInfo.setSize(buildSizesInfo.accelerationStructureSize);
+        bufferCreateInfo.setUsage(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
+                                  vk::BufferUsageFlagBits::eShaderDeviceAddress);
+
         Buffer buffer{};
-        buffer.handle = device->createBufferUnique(
-            vk::BufferCreateInfo{}
-                .setSize(buildSizesInfo.accelerationStructureSize)
-                .setUsage(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
-                          vk::BufferUsageFlagBits::eShaderDeviceAddress));
+        buffer.handle = device->createBufferUnique(bufferCreateInfo);
 
         // メモリを確保してバインドする
         auto memoryRequirements = device->getBufferMemoryRequirements(*buffer.handle);
-        vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{
-            vk::MemoryAllocateFlagBits::eDeviceAddress};
+        vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{};
+        memoryAllocateFlagsInfo.setFlags(vk::MemoryAllocateFlagBits::eDeviceAddress);
 
-        buffer.deviceMemory =
-            device->allocateMemoryUnique(vk::MemoryAllocateInfo{}
-                                             .setAllocationSize(memoryRequirements.size)
-                                             .setMemoryTypeIndex(vkutils::getMemoryType(
-                                                 physicalDevice, memoryRequirements,
-                                                 vk::MemoryPropertyFlagBits::eHostVisible |
-                                                     vk::MemoryPropertyFlagBits::eHostCoherent))
-                                             .setPNext(&memoryAllocateFlagsInfo));
+        vk::MemoryAllocateInfo allocateInfo{};
+        allocateInfo.setAllocationSize(memoryRequirements.size);
+        allocateInfo.setMemoryTypeIndex(vkutils::getMemoryType(
+            physicalDevice, memoryRequirements,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent));
+        allocateInfo.setPNext(&memoryAllocateFlagsInfo);
+        buffer.deviceMemory = device->allocateMemoryUnique(allocateInfo);
         device->bindBufferMemory(*buffer.handle, *buffer.deviceMemory, 0);
 
         return buffer;
@@ -637,22 +647,24 @@ private:
         Buffer scratchBuffer;
 
         // バッファを作成する
-        scratchBuffer.handle =
-            device->createBufferUnique(vk::BufferCreateInfo{}.setSize(size).setUsage(
-                vk::BufferUsageFlagBits::eStorageBuffer |
-                vk::BufferUsageFlagBits::eShaderDeviceAddress));
+        vk::BufferCreateInfo bufferCreateInfo{};
+        bufferCreateInfo.setSize(size);
+        bufferCreateInfo.setUsage(vk::BufferUsageFlagBits::eStorageBuffer |
+                                  vk::BufferUsageFlagBits::eShaderDeviceAddress);
+
+        scratchBuffer.handle = device->createBufferUnique(bufferCreateInfo);
 
         // メモリを確保してバインドする
         auto memoryRequirements = device->getBufferMemoryRequirements(*scratchBuffer.handle);
-        vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{
-            vk::MemoryAllocateFlagBits::eDeviceAddress};
+        vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{};
+        memoryAllocateFlagsInfo.setFlags(vk::MemoryAllocateFlagBits::eDeviceAddress);
 
-        scratchBuffer.deviceMemory = device->allocateMemoryUnique(
-            vk::MemoryAllocateInfo{}
-                .setAllocationSize(memoryRequirements.size)
-                .setMemoryTypeIndex(vkutils::getMemoryType(
-                    physicalDevice, memoryRequirements, vk::MemoryPropertyFlagBits::eDeviceLocal))
-                .setPNext(&memoryAllocateFlagsInfo));
+        vk::MemoryAllocateInfo allocateInfo{};
+        allocateInfo.setAllocationSize(memoryRequirements.size);
+        allocateInfo.setMemoryTypeIndex(vkutils::getMemoryType(
+            physicalDevice, memoryRequirements, vk::MemoryPropertyFlagBits::eDeviceLocal));
+        allocateInfo.setPNext(&memoryAllocateFlagsInfo);
+        scratchBuffer.deviceMemory = device->allocateMemoryUnique(allocateInfo);
         device->bindBufferMemory(*scratchBuffer.handle, *scratchBuffer.deviceMemory, 0);
 
         // バッファのデバイスアドレスを取得する
