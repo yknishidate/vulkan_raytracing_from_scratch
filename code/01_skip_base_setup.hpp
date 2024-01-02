@@ -4,11 +4,9 @@
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
-class Application
-{
+class Application {
 public:
-    void run()
-    {
+    void run() {
         initWindow();
         initVulkan();
         mainLoop();
@@ -28,10 +26,9 @@ private:
     std::vector<vk::Image> swapChainImages;
 
     vk::UniqueCommandPool commandPool;
-    std::vector<vk::UniqueCommandBuffer> drawCommandBuffers;
+    std::vector<vk::UniqueCommandBuffer> commandBuffers;
 
-    void initWindow()
-    {
+    void initWindow() {
         glfwInit();
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -40,13 +37,10 @@ private:
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
 
-    void initVulkan()
-    {
-        std::vector<const char*> deviceExtensions = {
-            // レイトレーシング拡張
-            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME
-        };
+    void initVulkan() {
+        std::vector<const char*> deviceExtensions = {// レイトレーシング拡張
+                                                     VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+                                                     VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME};
         vkutils::addDeviceExtensions(deviceExtensions);
 
         vkutils::enableDebugMessage();
@@ -61,18 +55,16 @@ private:
         swapChainImages = vkutils::getSwapChainImages(device.get(), swapChain.get());
 
         commandPool = vkutils::createCommandPool(device.get());
-        drawCommandBuffers = vkutils::createDrawCommandBuffers(device.get(), commandPool.get());
+        commandBuffers = vkutils::createDrawCommandBuffers(device.get(), commandPool.get());
     }
 
-    void mainLoop()
-    {
+    void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
         }
     }
 
-    void cleanup()
-    {
+    void cleanup() {
         glfwDestroyWindow(window);
         glfwTerminate();
     }

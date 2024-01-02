@@ -4,8 +4,7 @@
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
-struct StorageImage
-{
+struct StorageImage {
     vk::UniqueDeviceMemory memory;
     vk::UniqueImage image;
     vk::UniqueImageView view;
@@ -14,24 +13,19 @@ struct StorageImage
     uint32_t height;
 };
 
-struct Vertex
-{
+struct Vertex {
     float pos[3];
 };
 
-struct Buffer
-{
+struct Buffer {
     vk::UniqueBuffer handle;
     vk::UniqueDeviceMemory deviceMemory;
     uint64_t deviceAddress;
 };
 
-
-class Application
-{
+class Application {
 public:
-    void run()
-    {
+    void run() {
         initWindow();
         initVulkan();
         mainLoop();
@@ -51,12 +45,11 @@ private:
     std::vector<vk::Image> swapChainImages;
 
     vk::UniqueCommandPool commandPool;
-    std::vector<vk::UniqueCommandBuffer> drawCommandBuffers;
+    std::vector<vk::UniqueCommandBuffer> commandBuffers;
 
     StorageImage storageImage;
 
-    void initWindow()
-    {
+    void initWindow() {
         glfwInit();
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -65,13 +58,10 @@ private:
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
 
-    void initVulkan()
-    {
-        std::vector<const char*> deviceExtensions = {
-            // レイトレーシング拡張
-            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME
-        };
+    void initVulkan() {
+        std::vector<const char*> deviceExtensions = {// レイトレーシング拡張
+                                                     VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+                                                     VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME};
         vkutils::addDeviceExtensions(deviceExtensions);
 
         vkutils::enableDebugMessage();
@@ -86,88 +76,82 @@ private:
         swapChainImages = vkutils::getSwapChainImages(device.get(), swapChain.get());
 
         commandPool = vkutils::createCommandPool(device.get());
-        drawCommandBuffers = vkutils::createDrawCommandBuffers(device.get(), commandPool.get());
+        commandBuffers = vkutils::createDrawCommandBuffers(device.get(), commandPool.get());
 
         createStorageImage();
         createBottomLevelAS();
     }
 
-    void createStorageImage()
-    {
+    void createStorageImage() {
         storageImage.width = WIDTH;
         storageImage.height = HEIGHT;
 
         // Imageハンドルを作成する
         storageImage.image = device->createImageUnique(
             vk::ImageCreateInfo{}
-            .setImageType(vk::ImageType::e2D)
-            .setFormat(vk::Format::eB8G8R8A8Unorm)
-            .setExtent({ storageImage.width , storageImage.height, 1 })
-            .setMipLevels(1)
-            .setArrayLayers(1)
-            .setUsage(vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage)
-        );
+                .setImageType(vk::ImageType::e2D)
+                .setFormat(vk::Format::eB8G8R8A8Unorm)
+                .setExtent({storageImage.width, storageImage.height, 1})
+                .setMipLevels(1)
+                .setArrayLayers(1)
+                .setUsage(vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage));
 
         // メモリ確保を行いバインドする
         auto memoryRequirements = device->getImageMemoryRequirements(storageImage.image.get());
         storageImage.memory = device->allocateMemoryUnique(
             vk::MemoryAllocateInfo{}
-            .setAllocationSize(memoryRequirements.size)
-            .setMemoryTypeIndex(vkutils::getMemoryType(
-                memoryRequirements, vk::MemoryPropertyFlagBits::eDeviceLocal))
-        );
+                .setAllocationSize(memoryRequirements.size)
+                .setMemoryTypeIndex(vkutils::getMemoryType(
+                    memoryRequirements, vk::MemoryPropertyFlagBits::eDeviceLocal)));
         device->bindImageMemory(storageImage.image.get(), storageImage.memory.get(), 0);
 
         // Image Viewを作成する
         storageImage.view = device->createImageViewUnique(
             vk::ImageViewCreateInfo{}
-            .setImage(storageImage.image.get())
-            .setViewType(vk::ImageViewType::e2D)
-            .setFormat(vk::Format::eB8G8R8A8Unorm)
-            .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 })
-        );
+                .setImage(storageImage.image.get())
+                .setViewType(vk::ImageViewType::e2D)
+                .setFormat(vk::Format::eB8G8R8A8Unorm)
+                .setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}));
 
         // Image レイアウトをGeneralにしておく
         auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
 
         vkutils::setImageLayout(commandBuffer.get(), storageImage.image.get(),
                                 vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral,
-                                { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+                                {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
 
         vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
     }
 
-    void createBottomLevelAS()
-    {
+    void createBottomLevelAS() {
         // 三角形のデータを用意
         std::vector<Vertex> vertices = {
-            {{1.0f, 1.0f, 0.0f}},
-            {{-1.0f, 1.0f, 0.0f}},
-            {{0.0f, -1.0f, 0.0f}} };
-        std::vector<uint32_t> indices = { 0, 1, 2 };
+            {{1.0f, 1.0f, 0.0f}}, {{-1.0f, 1.0f, 0.0f}}, {{0.0f, -1.0f, 0.0f}}};
+        std::vector<uint32_t> indices = {0, 1, 2};
 
         // データからバッファを作成
         auto vertexBufferSize = vertices.size() * sizeof(Vertex);
         auto indexBufferSize = indices.size() * sizeof(uint32_t);
-        vk::BufferUsageFlags bufferUsage{ vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR
-                                        | vk::BufferUsageFlagBits::eShaderDeviceAddress
-                                        | vk::BufferUsageFlagBits::eStorageBuffer };
-        vk::MemoryPropertyFlags memoryProperty{ vk::MemoryPropertyFlagBits::eHostVisible
-                                              | vk::MemoryPropertyFlagBits::eHostCoherent };
-        Buffer vertexBuffer = createBuffer(vertexBufferSize, bufferUsage, memoryProperty, vertices.data());
-        Buffer indexBuffer = createBuffer(indexBufferSize, bufferUsage, memoryProperty, indices.data());
+        vk::BufferUsageFlags bufferUsage{
+            vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
+            vk::BufferUsageFlagBits::eShaderDeviceAddress |
+            vk::BufferUsageFlagBits::eStorageBuffer};
+        vk::MemoryPropertyFlags memoryProperty{vk::MemoryPropertyFlagBits::eHostVisible |
+                                               vk::MemoryPropertyFlagBits::eHostCoherent};
+        Buffer vertexBuffer =
+            createBuffer(vertexBufferSize, bufferUsage, memoryProperty, vertices.data());
+        Buffer indexBuffer =
+            createBuffer(indexBufferSize, bufferUsage, memoryProperty, indices.data());
     }
 
-    Buffer createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryPropertiy, void* data = nullptr)
-    {
+    Buffer createBuffer(vk::DeviceSize size,
+                        vk::BufferUsageFlags usage,
+                        vk::MemoryPropertyFlags memoryPropertiy,
+                        void* data = nullptr) {
         // Bufferオブジェクトを作成
         Buffer buffer{};
         buffer.handle = device->createBufferUnique(
-            vk::BufferCreateInfo{}
-            .setSize(size)
-            .setUsage(usage)
-            .setQueueFamilyIndexCount(0)
-        );
+            vk::BufferCreateInfo{}.setSize(size).setUsage(usage).setQueueFamilyIndexCount(0));
 
         // メモリを確保してバインドする
         auto memoryRequirements = device->getBufferMemoryRequirements(buffer.handle.get());
@@ -178,10 +162,9 @@ private:
 
         buffer.deviceMemory = device->allocateMemoryUnique(
             vk::MemoryAllocateInfo{}
-            .setAllocationSize(memoryRequirements.size)
-            .setMemoryTypeIndex(vkutils::getMemoryType(memoryRequirements, memoryPropertiy))
-            .setPNext(&memoryFlagsInfo)
-        );
+                .setAllocationSize(memoryRequirements.size)
+                .setMemoryTypeIndex(vkutils::getMemoryType(memoryRequirements, memoryPropertiy))
+                .setPNext(&memoryFlagsInfo));
         device->bindBufferMemory(buffer.handle.get(), buffer.deviceMemory.get(), 0);
 
         // データをメモリにコピーする
@@ -192,27 +175,24 @@ private:
         }
 
         // バッファのデバイスアドレスを取得する
-        vk::BufferDeviceAddressInfoKHR bufferDeviceAddressInfo{ buffer.handle.get() };
+        vk::BufferDeviceAddressInfoKHR bufferDeviceAddressInfo{buffer.handle.get()};
         buffer.deviceAddress = getBufferDeviceAddress(buffer.handle.get());
 
         return buffer;
     }
 
-    uint64_t getBufferDeviceAddress(vk::Buffer buffer)
-    {
-        vk::BufferDeviceAddressInfoKHR bufferDeviceAI{ buffer };
+    uint64_t getBufferDeviceAddress(vk::Buffer buffer) {
+        vk::BufferDeviceAddressInfoKHR bufferDeviceAI{buffer};
         return device->getBufferAddressKHR(&bufferDeviceAI);
     }
 
-    void mainLoop()
-    {
+    void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
         }
     }
 
-    void cleanup()
-    {
+    void cleanup() {
         glfwDestroyWindow(window);
         glfwTerminate();
     }
