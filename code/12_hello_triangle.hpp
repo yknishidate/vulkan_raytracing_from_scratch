@@ -30,6 +30,7 @@ public:
             drawFrame();
         }
         device->waitIdle();
+
         glfwDestroyWindow(window);
         glfwTerminate();
     }
@@ -42,10 +43,9 @@ private:
     vk::UniqueDebugUtilsMessengerEXT debugUtilsMessenger;
     vk::UniqueSurfaceKHR surface;
     vk::PhysicalDevice physicalDevice;
-    vk::PhysicalDeviceRayTracingPipelinePropertiesKHR rayTracingPipelineProperties{};
     vk::UniqueDevice device;
-    uint32_t queueFamilyIndex{};
     vk::Queue queue;
+    uint32_t queueFamilyIndex{};
 
     // Swapchain
     vk::UniqueSwapchainKHR swapchain;
@@ -70,6 +70,9 @@ private:
     vk::UniqueDescriptorSet descriptorSet;
 
     // Shader binding table
+    uint32_t handleSize{};
+    uint32_t handleAlignment{};
+    uint32_t handleSizeAligned{};
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
     Buffer raygenShaderBindingTable{};
     Buffer missShaderBindingTable{};
@@ -88,9 +91,9 @@ private:
         };
 
         std::vector<const char*> deviceExtensions = {
-            // Swapchain
+            // For swapchain
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-            // レイトレーシング
+            // For ray tracing
             VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
             VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
             VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
@@ -98,23 +101,25 @@ private:
             VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
         };
 
-        instance = vkutils::createInstance(layers);
+        // Create instance, device, queue
+        // Ray tracing requires Vulkan 1.2 or later
+        instance = vkutils::createInstance(VK_API_VERSION_1_2, layers);
         debugUtilsMessenger = vkutils::createDebugMessenger(*instance);
         surface = vkutils::createSurface(*instance, window);
         physicalDevice = vkutils::pickPhysicalDevice(*instance, *surface, deviceExtensions);
-        queueFamilyIndex = vkutils::findGeneralQueueFamilies(physicalDevice, *surface);
+        queueFamilyIndex = vkutils::findGeneralQueueFamily(physicalDevice, *surface);
         device = vkutils::createLogicalDevice(physicalDevice, queueFamilyIndex, deviceExtensions);
         queue = device->getQueue(queueFamilyIndex, 0);
 
-        rayTracingPipelineProperties = vkutils::getRayTracingProps(physicalDevice);
-
+        // Create swapchain images as storage image
         swapchain = vkutils::createSwapchain(physicalDevice, *device, *surface, queueFamilyIndex,
-                                             WIDTH, HEIGHT);
+                                             vk::ImageUsageFlagBits::eStorage, WIDTH, HEIGHT);
         swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 
+        // Create command buffers
         commandPool = vkutils::createCommandPool(*device, queueFamilyIndex);
-        commandBuffers =
-            vkutils::createDrawCommandBuffers(*device, *commandPool, swapchainImages.size());
+        commandBuffers = vkutils::createCommandBuffers(*device, *commandPool,  //
+                                                       swapchainImages.size());
 
         createSwapchainImageViews();
         createBottomLevelAS();
@@ -401,9 +406,11 @@ private:
     }
 
     void createShaderBindingTable() {
-        const uint32_t handleSize = rayTracingPipelineProperties.shaderGroupHandleSize;
-        const uint32_t handleSizeAligned =
-            vkutils::getHandleSizeAligned(rayTracingPipelineProperties);
+        auto rayTracingPipelineProperties = vkutils::getRayTracingProps(physicalDevice);
+        handleSize = rayTracingPipelineProperties.shaderGroupHandleSize;
+        handleAlignment = rayTracingPipelineProperties.shaderGroupHandleAlignment;
+        handleSizeAligned = vkutils::getAlignedSize(handleSize, handleAlignment);
+
         const uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
         const uint32_t sbtSize = groupCount * handleSizeAligned;
 
@@ -491,9 +498,6 @@ private:
         vkutils::setImageLayout(commandBuffer, image, vk::ImageLayout::ePresentSrcKHR,
                                 vk::ImageLayout::eGeneral, subresourceRange);
 
-        const uint32_t handleSizeAligned =
-            vkutils::getHandleSizeAligned(rayTracingPipelineProperties);
-
         vk::StridedDeviceAddressRegionKHR raygenEntry{};
         raygenEntry.setDeviceAddress(raygenShaderBindingTable.deviceAddress);
         raygenEntry.setStride(handleSizeAligned);
@@ -530,8 +534,9 @@ private:
         );
 
         // スワップチェインの画像を提示用に設定
-        vkutils::setImageLayout(commandBuffer, image, vk::ImageLayout::eGeneral,
-                                vk::ImageLayout::ePresentSrcKHR, subresourceRange);
+        vkutils::setImageLayout(commandBuffer, image,  //
+                                vk::ImageLayout::eGeneral, vk::ImageLayout::ePresentSrcKHR,
+                                subresourceRange);
         commandBuffer.end();
     }
 

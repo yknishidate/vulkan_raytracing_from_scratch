@@ -64,7 +64,8 @@ inline vk::DebugUtilsMessengerCreateInfoEXT createDebugCreateInfo() {
     return createInfo;
 }
 
-inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers) {
+inline vk::UniqueInstance createInstance(uint32_t apiVersion,
+                                         const std::vector<const char*>& layers) {
     std::cout << "Create instance\n";
 
     // Setup dynamic loader
@@ -81,7 +82,7 @@ inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers)
 
     // Create instance
     vk::ApplicationInfo appInfo{};
-    appInfo.setApiVersion(VK_API_VERSION_1_2);
+    appInfo.setApiVersion(apiVersion);
 
     std::vector<const char*> extensions = getRequiredExtensions();
 
@@ -99,8 +100,7 @@ inline vk::UniqueInstance createInstance(const std::vector<const char*>& layers)
 
 inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instance) {
     std::cout << "Create debug messenger\n";
-    vk::DebugUtilsMessengerCreateInfoEXT createInfo = createDebugCreateInfo();
-    return instance.createDebugUtilsMessengerEXTUnique(createInfo);
+    return instance.createDebugUtilsMessengerEXTUnique(createDebugCreateInfo());
 }
 
 inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance, GLFWwindow* window) {
@@ -114,8 +114,7 @@ inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance, GLFWwindow* win
     return vk::UniqueSurfaceKHR{vk::SurfaceKHR(_surface), {instance}};
 }
 
-inline uint32_t findGeneralQueueFamilies(vk::PhysicalDevice physicalDevice,
-                                         vk::SurfaceKHR surface) {
+inline uint32_t findGeneralQueueFamily(vk::PhysicalDevice physicalDevice, vk::SurfaceKHR surface) {
     auto queueFamilies = physicalDevice.getQueueFamilyProperties();
     for (uint32_t i = 0; i < queueFamilies.size(); i++) {
         vk::Bool32 presentSupport = physicalDevice.getSurfaceSupportKHR(i, surface);
@@ -152,7 +151,7 @@ inline bool isDeviceSuitable(vk::PhysicalDevice physicalDevice,
 inline vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance,
                                              vk::SurfaceKHR surface,
                                              const std::vector<const char*>& deviceExtensions) {
-    // 適切な物理デバイスを選択
+    // Select suitable physical device
     for (const auto& device : instance.enumeratePhysicalDevices()) {
         if (isDeviceSuitable(device, surface, deviceExtensions)) {
             return device;
@@ -239,6 +238,7 @@ inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
                                               vk::Device device,
                                               vk::SurfaceKHR surface,
                                               uint32_t queueFamilyIndex,
+                                              vk::ImageUsageFlags usage,
                                               uint32_t width,
                                               uint32_t height) {
     std::cout << "Create swapchain\n";
@@ -260,7 +260,7 @@ inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
     createInfo.setImageColorSpace(surfaceFormat.colorSpace);
     createInfo.setImageExtent(extent);
     createInfo.setImageArrayLayers(1);
-    createInfo.setImageUsage(vk::ImageUsageFlagBits::eStorage);
+    createInfo.setImageUsage(usage);
     createInfo.setQueueFamilyIndices(nullptr);
     createInfo.setPreTransform(capabilities.currentTransform);
     createInfo.setPresentMode(presentMode);
@@ -323,9 +323,9 @@ inline void oneTimeSubmit(vk::Device device,
     }
 }
 
-inline std::vector<vk::UniqueCommandBuffer> createDrawCommandBuffers(vk::Device device,
-                                                                     vk::CommandPool commandPool,
-                                                                     uint32_t count) {
+inline std::vector<vk::UniqueCommandBuffer> createCommandBuffers(vk::Device device,
+                                                                 vk::CommandPool commandPool,
+                                                                 uint32_t count) {
     vk::CommandBufferAllocateInfo allocateInfo{};
     allocateInfo.setCommandPool(commandPool);
     allocateInfo.setLevel(vk::CommandBufferLevel::ePrimary);
@@ -350,11 +350,10 @@ inline std::vector<char> readFile(const std::string& filename) {
 
 inline vk::UniqueShaderModule createShaderModule(vk::Device device, const std::string& filename) {
     const std::vector<char> code = readFile(filename);
-
-    vk::UniqueShaderModule shaderModule = device.createShaderModuleUnique(
-        {{}, code.size(), reinterpret_cast<const uint32_t*>(code.data())});
-
-    return shaderModule;
+    vk::ShaderModuleCreateInfo createInfo{};
+    createInfo.setCodeSize(code.size());
+    createInfo.setPCode(reinterpret_cast<const uint32_t*>(code.data()));
+    return device.createShaderModuleUnique(createInfo);
 }
 
 inline void setImageLayout(
@@ -431,9 +430,7 @@ inline void setImageLayout(
                                   {}, {}, {}, imageMemoryBarrier);
 }
 
-inline uint32_t getHandleSizeAligned(vk::PhysicalDeviceRayTracingPipelinePropertiesKHR props) {
-    const uint32_t handleSize = props.shaderGroupHandleSize;
-    const uint32_t handleAlignment = props.shaderGroupHandleAlignment;
-    return (handleSize + handleAlignment - 1) & ~(handleAlignment - 1);
+inline uint32_t getAlignedSize(uint32_t size, uint32_t alignment) {
+    return (size + alignment - 1) & ~(alignment - 1);
 }
 }  // namespace vkutils
