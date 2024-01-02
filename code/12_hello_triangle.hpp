@@ -324,54 +324,54 @@ private:
 
         // レイトレーシングシェーダグループの設定
         // 各シェーダグループはパイプライン内の対応するシェーダを指す
-        std::array<vk::PipelineShaderStageCreateInfo, 3> shaderStages;
-        constexpr uint32_t shaderIndexRaygen = 0;
-        constexpr uint32_t shaderIndexMiss = 1;
-        constexpr uint32_t shaderIndexClosestHit = 2;
-
-        std::vector<vk::UniqueShaderModule> shaderModules;
+        constexpr uint32_t raygenIndex = 0;
+        constexpr uint32_t missIndex = 1;
+        constexpr uint32_t chitIndex = 2;
+        std::vector<vk::PipelineShaderStageCreateInfo> shaderStages(3);
+        std::vector<vk::UniqueShaderModule> shaderModules(3);
+        shaderGroups.resize(3);
 
         // Ray generation グループ
-        shaderModules.push_back(
-            vkutils::createShaderModule(*device, SHADER_DIR + "raygen.rgen.spv"));
-        shaderStages[shaderIndexRaygen] = vk::PipelineShaderStageCreateInfo{}
-                                              .setStage(vk::ShaderStageFlagBits::eRaygenKHR)
-                                              .setModule(*shaderModules.back())
-                                              .setPName("main");
-        shaderGroups.push_back(vk::RayTracingShaderGroupCreateInfoKHR{}
-                                   .setType(vk::RayTracingShaderGroupTypeKHR::eGeneral)
-                                   .setGeneralShader(shaderIndexRaygen)
-                                   .setClosestHitShader(VK_SHADER_UNUSED_KHR)
-                                   .setAnyHitShader(VK_SHADER_UNUSED_KHR)
-                                   .setIntersectionShader(VK_SHADER_UNUSED_KHR));
+        shaderModules[raygenIndex] =
+            vkutils::createShaderModule(*device, SHADER_DIR + "raygen.rgen.spv");
+
+        shaderStages[raygenIndex].setStage(vk::ShaderStageFlagBits::eRaygenKHR);
+        shaderStages[raygenIndex].setModule(*shaderModules[raygenIndex]);
+        shaderStages[raygenIndex].setPName("main");
+
+        shaderGroups[raygenIndex].setType(vk::RayTracingShaderGroupTypeKHR::eGeneral);
+        shaderGroups[raygenIndex].setGeneralShader(raygenIndex);
+        shaderGroups[raygenIndex].setClosestHitShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[raygenIndex].setAnyHitShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[raygenIndex].setIntersectionShader(VK_SHADER_UNUSED_KHR);
 
         // Ray miss グループ
-        shaderModules.push_back(
-            vkutils::createShaderModule(*device, SHADER_DIR + "miss.rmiss.spv"));
-        shaderStages[shaderIndexMiss] = vk::PipelineShaderStageCreateInfo{}
-                                            .setStage(vk::ShaderStageFlagBits::eMissKHR)
-                                            .setModule(*shaderModules.back())
-                                            .setPName("main");
-        shaderGroups.push_back(vk::RayTracingShaderGroupCreateInfoKHR{}
-                                   .setType(vk::RayTracingShaderGroupTypeKHR::eGeneral)
-                                   .setGeneralShader(shaderIndexMiss)
-                                   .setClosestHitShader(VK_SHADER_UNUSED_KHR)
-                                   .setAnyHitShader(VK_SHADER_UNUSED_KHR)
-                                   .setIntersectionShader(VK_SHADER_UNUSED_KHR));
+        shaderModules[missIndex] =
+            vkutils::createShaderModule(*device, SHADER_DIR + "miss.rmiss.spv");
+
+        shaderStages[missIndex].setStage(vk::ShaderStageFlagBits::eMissKHR);
+        shaderStages[missIndex].setModule(*shaderModules[missIndex]);
+        shaderStages[missIndex].setPName("main");
+
+        shaderGroups[missIndex].setType(vk::RayTracingShaderGroupTypeKHR::eGeneral);
+        shaderGroups[missIndex].setGeneralShader(missIndex);
+        shaderGroups[missIndex].setClosestHitShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[missIndex].setAnyHitShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[missIndex].setIntersectionShader(VK_SHADER_UNUSED_KHR);
 
         // Ray closest hit グループ
-        shaderModules.push_back(
-            vkutils::createShaderModule(*device, SHADER_DIR + "closesthit.rchit.spv"));
-        shaderStages[shaderIndexClosestHit] = vk::PipelineShaderStageCreateInfo{}
-                                                  .setStage(vk::ShaderStageFlagBits::eClosestHitKHR)
-                                                  .setModule(*shaderModules.back())
-                                                  .setPName("main");
-        shaderGroups.push_back(vk::RayTracingShaderGroupCreateInfoKHR{}
-                                   .setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup)
-                                   .setGeneralShader(VK_SHADER_UNUSED_KHR)
-                                   .setClosestHitShader(shaderIndexClosestHit)
-                                   .setAnyHitShader(VK_SHADER_UNUSED_KHR)
-                                   .setIntersectionShader(VK_SHADER_UNUSED_KHR));
+        shaderModules[chitIndex] =
+            vkutils::createShaderModule(*device, SHADER_DIR + "closesthit.rchit.spv");
+
+        shaderStages[chitIndex].setStage(vk::ShaderStageFlagBits::eClosestHitKHR);
+        shaderStages[chitIndex].setModule(*shaderModules[chitIndex]);
+        shaderStages[chitIndex].setPName("main");
+
+        shaderGroups[chitIndex].setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup);
+        shaderGroups[chitIndex].setGeneralShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[chitIndex].setClosestHitShader(chitIndex);
+        shaderGroups[chitIndex].setAnyHitShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[chitIndex].setIntersectionShader(VK_SHADER_UNUSED_KHR);
 
         // レイトレーシングパイプラインを作成する
         auto result =
