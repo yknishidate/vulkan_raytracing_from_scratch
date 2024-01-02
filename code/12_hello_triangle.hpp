@@ -228,7 +228,11 @@ private:
             vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
 
         // ASを保持するためのバッファを作成する
-        bottomAccel.buffer = createAccelerationStructureBuffer(buildSizesInfo);
+        bottomAccel.buffer = createBuffer(
+            buildSizesInfo.accelerationStructureSize,
+            vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
+                vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
         // ASを作成する
         vk::AccelerationStructureCreateInfoKHR createInfo{};
@@ -285,7 +289,11 @@ private:
             vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
 
         // ASを保持するためのバッファを作成する
-        topAccel.buffer = createAccelerationStructureBuffer(buildSizesInfo);
+        topAccel.buffer = createBuffer(
+            buildSizesInfo.accelerationStructureSize,
+            vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
+                vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
         // ASを作成する
         vk::AccelerationStructureCreateInfoKHR createInfo{};
@@ -612,34 +620,6 @@ private:
     uint64_t getBufferDeviceAddress(vk::Buffer buffer) {
         vk::BufferDeviceAddressInfoKHR bufferDeviceAI{buffer};
         return device->getBufferAddressKHR(&bufferDeviceAI);
-    }
-
-    Buffer createAccelerationStructureBuffer(
-        vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo) {
-        // Bufferオブジェクトを作成
-        vk::BufferCreateInfo bufferCreateInfo{};
-        bufferCreateInfo.setSize(buildSizesInfo.accelerationStructureSize);
-        bufferCreateInfo.setUsage(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
-                                  vk::BufferUsageFlagBits::eShaderDeviceAddress);
-
-        Buffer buffer{};
-        buffer.handle = device->createBufferUnique(bufferCreateInfo);
-
-        // メモリを確保してバインドする
-        auto memoryRequirements = device->getBufferMemoryRequirements(*buffer.handle);
-        vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{};
-        memoryAllocateFlagsInfo.setFlags(vk::MemoryAllocateFlagBits::eDeviceAddress);
-
-        vk::MemoryAllocateInfo allocateInfo{};
-        allocateInfo.setAllocationSize(memoryRequirements.size);
-        allocateInfo.setMemoryTypeIndex(vkutils::getMemoryType(
-            physicalDevice, memoryRequirements,
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent));
-        allocateInfo.setPNext(&memoryAllocateFlagsInfo);
-        buffer.deviceMemory = device->allocateMemoryUnique(allocateInfo);
-        device->bindBufferMemory(*buffer.handle, *buffer.deviceMemory, 0);
-
-        return buffer;
     }
 
     Buffer createScratchBuffer(vk::DeviceSize size) {
