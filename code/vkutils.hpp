@@ -323,14 +323,12 @@ inline void oneTimeSubmit(vk::Device device,
     }
 }
 
-inline std::vector<vk::UniqueCommandBuffer> createCommandBuffers(vk::Device device,
-                                                                 vk::CommandPool commandPool,
-                                                                 uint32_t count) {
+inline vk::UniqueCommandBuffer createCommandBuffer(vk::Device device, vk::CommandPool commandPool) {
     vk::CommandBufferAllocateInfo allocateInfo{};
     allocateInfo.setCommandPool(commandPool);
     allocateInfo.setLevel(vk::CommandBufferLevel::ePrimary);
-    allocateInfo.setCommandBufferCount(count);
-    return device.allocateCommandBuffersUnique(allocateInfo);
+    allocateInfo.setCommandBufferCount(1);
+    return std::move(device.allocateCommandBuffersUnique(allocateInfo).front());
 }
 
 inline std::vector<char> readFile(const std::string& filename) {

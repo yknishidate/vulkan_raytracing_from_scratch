@@ -54,7 +54,7 @@ private:
 
     // Command buffer
     vk::UniqueCommandPool commandPool;
-    std::vector<vk::UniqueCommandBuffer> commandBuffers;
+    vk::UniqueCommandBuffer commandBuffer;
 
     // Acceleration structure
     AccelStruct bottomAccel{};
@@ -113,21 +113,22 @@ private:
         device = vkutils::createLogicalDevice(physicalDevice, queueFamilyIndex, deviceExtensions);
         queue = device->getQueue(queueFamilyIndex, 0);
 
+        // Create command buffers
+        commandPool = vkutils::createCommandPool(*device, queueFamilyIndex);
+        commandBuffer = vkutils::createCommandBuffer(*device, *commandPool);
+
         // Create swapchain
         // Specify images as storage images
         swapchain = vkutils::createSwapchain(physicalDevice, *device, *surface, queueFamilyIndex,
                                              vk::ImageUsageFlagBits::eStorage, WIDTH, HEIGHT);
         swapchainImages = device->getSwapchainImagesKHR(*swapchain);
-
-        // Create command buffers
-        commandPool = vkutils::createCommandPool(*device, queueFamilyIndex);
-        commandBuffers = vkutils::createCommandBuffers(*device, *commandPool,  //
-                                                       swapchainImages.size());
-
         createSwapchainImageViews();
+
+        // AS
         createBottomLevelAS();
         createTopLevelAS();
 
+        // Pipeline, DescSet
         createDescriptorPool();
         createDescSetLayout();
         prepareShaderStages();
@@ -218,7 +219,7 @@ private:
         triangleData.setVertexFormat(vk::Format::eR32G32B32Sfloat);
         triangleData.setVertexData(vertexBuffer.deviceAddress);
         triangleData.setVertexStride(sizeof(Vertex));
-        triangleData.setMaxVertex(vertices.size());
+        triangleData.setMaxVertex(static_cast<uint32_t>(vertices.size()));
         triangleData.setIndexType(vk::IndexType::eUint32);
         triangleData.setIndexData(indexBuffer.deviceAddress);
 
@@ -481,9 +482,9 @@ private:
         device->updateDescriptorSets(writes, nullptr);
     }
 
-    void recordCommandBuffer(vk::CommandBuffer commandBuffer, vk::Image image) {
+    void recordCommandBuffer(vk::Image image) {
         // Begin
-        commandBuffer.begin(vk::CommandBufferBeginInfo{});
+        commandBuffer->begin(vk::CommandBufferBeginInfo{});
 
         // Set image layout to general
         vk::ImageSubresourceRange subresourceRange{};
@@ -492,15 +493,15 @@ private:
         subresourceRange.setLevelCount(1);
         subresourceRange.setBaseArrayLayer(0);
         subresourceRange.setLayerCount(1);
-        vkutils::setImageLayout(commandBuffer, image,  //
+        vkutils::setImageLayout(*commandBuffer, image,  //
                                 vk::ImageLayout::ePresentSrcKHR, vk::ImageLayout::eGeneral,
                                 subresourceRange);
 
         // Bind pipeline
-        commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
+        commandBuffer->bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
 
         // Bind desc set
-        commandBuffer.bindDescriptorSets(
+        commandBuffer->bindDescriptorSets(
             vk::PipelineBindPoint::eRayTracingKHR,  // pipelineBindPoint
             *pipelineLayout,                        // layout
             0,                                      // firstSet
@@ -524,22 +525,22 @@ private:
         hitEntry.setStride(handleSizeAligned);
         hitEntry.setSize(handleSizeAligned);
 
-        commandBuffer.traceRaysKHR(raygenEntry,  // raygenShaderBindingTable
-                                   missEntry,    // missShaderBindingTable
-                                   hitEntry,     // hitShaderBindingTable
-                                   {},           // callableShaderBindingTable
-                                   WIDTH,        // width
-                                   HEIGHT,       // height
-                                   1             // depth
+        commandBuffer->traceRaysKHR(raygenEntry,  // raygenShaderBindingTable
+                                    missEntry,    // missShaderBindingTable
+                                    hitEntry,     // hitShaderBindingTable
+                                    {},           // callableShaderBindingTable
+                                    WIDTH,        // width
+                                    HEIGHT,       // height
+                                    1             // depth
         );
 
         // Set image layout to present src
-        vkutils::setImageLayout(commandBuffer, image,  //
+        vkutils::setImageLayout(*commandBuffer, image,  //
                                 vk::ImageLayout::eGeneral, vk::ImageLayout::ePresentSrcKHR,
                                 subresourceRange);
 
         // End
-        commandBuffer.end();
+        commandBuffer->end();
     }
 
     void drawFrame() {
@@ -564,13 +565,13 @@ private:
         updateDescriptorSets(*swapchainImageViews[imageIndex]);
 
         // Record command buffer
-        recordCommandBuffer(*commandBuffers[imageIndex], swapchainImages[imageIndex]);
+        recordCommandBuffer(swapchainImages[imageIndex]);
 
         // Submit command buffer
         vk::PipelineStageFlags waitStage{vk::PipelineStageFlagBits::eRayTracingShaderKHR};
         vk::SubmitInfo submitInfo{};
         submitInfo.setWaitDstStageMask(waitStage);
-        submitInfo.setCommandBuffers(*commandBuffers[imageIndex]);
+        submitInfo.setCommandBuffers(*commandBuffer);
         submitInfo.setWaitSemaphores(*imageAvailableSemaphore);
         queue.submit(submitInfo);
 
