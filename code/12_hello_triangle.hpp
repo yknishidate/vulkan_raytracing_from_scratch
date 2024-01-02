@@ -435,11 +435,10 @@ private:
         descriptorPool = device->createDescriptorPoolUnique(descriptorPoolCreateInfo);
 
         // ディスクリプタセットを1つ準備する
-        auto descriptorSets =
-            device->allocateDescriptorSetsUnique(vk::DescriptorSetAllocateInfo{}
-                                                     .setDescriptorPool(*descriptorPool)
-                                                     .setSetLayouts(*descriptorSetLayout));
-        descriptorSet = std::move(descriptorSets.front());
+        vk::DescriptorSetAllocateInfo allocateInfo{};
+        allocateInfo.setDescriptorPool(*descriptorPool);
+        allocateInfo.setSetLayouts(*descriptorSetLayout);
+        descriptorSet = std::move(device->allocateDescriptorSetsUnique(allocateInfo).front());
     }
 
     void updateDescriptorSets(vk::ImageView imageView) {
