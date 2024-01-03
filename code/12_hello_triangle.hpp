@@ -153,7 +153,7 @@ private:
             vk::ImageViewCreateInfo imageViewCreateInfo{};
             imageViewCreateInfo.setImage(image);
             imageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
-            imageViewCreateInfo.setFormat(vk::Format::eB8G8R8A8Unorm);
+            imageViewCreateInfo.setFormat(surfaceFormat.format);
             imageViewCreateInfo.setComponents(
                 {vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG,
                  vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
