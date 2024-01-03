@@ -1,4 +1,4 @@
-#include "12_hello_triangle.hpp"
+#include "02_create_swapchain.hpp"
 
 int main() {
     Application app;

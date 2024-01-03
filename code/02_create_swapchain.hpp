@@ -50,6 +50,7 @@ private:
     vk::UniqueCommandBuffer commandBuffer;
 
     // Swapchain
+    vk::SurfaceFormatKHR surfaceFormat;
     vk::UniqueSwapchainKHR swapchain;
     std::vector<vk::Image> swapchainImages;
     std::vector<vk::UniqueImageView> swapchainImageViews;
@@ -82,9 +83,12 @@ private:
         instance = vkutils::createInstance(VK_API_VERSION_1_2, layers);
         debugMessenger = vkutils::createDebugMessenger(*instance);
         surface = vkutils::createSurface(*instance, window);
-        physicalDevice = vkutils::pickPhysicalDevice(*instance, *surface, deviceExtensions);
-        queueFamilyIndex = vkutils::findGeneralQueueFamily(physicalDevice, *surface);
-        device = vkutils::createLogicalDevice(physicalDevice, queueFamilyIndex, deviceExtensions);
+        physicalDevice =
+            vkutils::pickPhysicalDevice(*instance, *surface, deviceExtensions);
+        queueFamilyIndex =
+            vkutils::findGeneralQueueFamily(physicalDevice, *surface);
+        device = vkutils::createLogicalDevice(physicalDevice, queueFamilyIndex,
+                                              deviceExtensions);
         queue = device->getQueue(queueFamilyIndex, 0);
 
         // Create command buffers
@@ -93,9 +97,10 @@ private:
 
         // Create swapchain
         // Specify images as storage images
-
-        swapchain = vkutils::createSwapchain(physicalDevice, *device, *surface, queueFamilyIndex,
-                                             vk::ImageUsageFlagBits::eStorage, WIDTH, HEIGHT);
+        surfaceFormat = vkutils::chooseSurfaceFormat(physicalDevice, *surface);
+        swapchain = vkutils::createSwapchain(
+            physicalDevice, *device, *surface, queueFamilyIndex,
+            vk::ImageUsageFlagBits::eStorage, surfaceFormat, WIDTH, HEIGHT);
         swapchainImages = device->getSwapchainImagesKHR(*swapchain);
         createSwapchainImageViews();
     }
@@ -106,18 +111,23 @@ private:
             imageViewCreateInfo.setImage(image);
             imageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
             imageViewCreateInfo.setFormat(vk::Format::eB8G8R8A8Unorm);
-            imageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG,
-                                               vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
-            imageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-            swapchainImageViews.push_back(device->createImageViewUnique(imageViewCreateInfo));
+            imageViewCreateInfo.setComponents(
+                {vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG,
+                 vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
+            imageViewCreateInfo.setSubresourceRange(
+                {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+            swapchainImageViews.push_back(
+                device->createImageViewUnique(imageViewCreateInfo));
         }
 
-        vkutils::oneTimeSubmit(*device, *commandPool, queue, [&](vk::CommandBuffer commandBuffer) {
-            for (auto& image : swapchainImages) {
-                vkutils::setImageLayout(commandBuffer, image, vk::ImageLayout::eUndefined,
-                                        vk::ImageLayout::ePresentSrcKHR,
-                                        {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-            }
-        });
+        vkutils::oneTimeSubmit(
+            *device, *commandPool, queue, [&](vk::CommandBuffer commandBuffer) {
+                for (auto& image : swapchainImages) {
+                    vkutils::setImageLayout(
+                        commandBuffer, image, vk::ImageLayout::eUndefined,
+                        vk::ImageLayout::ePresentSrcKHR,
+                        {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+                }
+            });
     }
 };
