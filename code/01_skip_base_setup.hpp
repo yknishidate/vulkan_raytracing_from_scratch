@@ -9,63 +9,69 @@ public:
     void run() {
         initWindow();
         initVulkan();
-        mainLoop();
-        cleanup();
+
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+        }
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
     }
 
 private:
-    GLFWwindow* window;
+    GLFWwindow* window = nullptr;
 
+    // Instance, Device, Queue
     vk::UniqueInstance instance;
-    vk::UniqueDebugUtilsMessengerEXT debugUtilsMessenger;
+    vk::UniqueDebugUtilsMessengerEXT debugMessenger;
     vk::UniqueSurfaceKHR surface;
+    vk::PhysicalDevice physicalDevice;
     vk::UniqueDevice device;
-    vk::Queue graphicsQueue;
+    vk::Queue queue;
+    uint32_t queueFamilyIndex{};
 
-    vk::UniqueSwapchainKHR swapChain;
-    std::vector<vk::Image> swapChainImages;
-
+    // Command buffer
     vk::UniqueCommandPool commandPool;
-    std::vector<vk::UniqueCommandBuffer> commandBuffers;
+    vk::UniqueCommandBuffer commandBuffer;
 
     void initWindow() {
         glfwInit();
-
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
 
     void initVulkan() {
-        std::vector<const char*> deviceExtensions = {// レイトレーシング拡張
-                                                     VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-                                                     VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME};
-        vkutils::addDeviceExtensions(deviceExtensions);
+        std::vector<const char*> layers = {
+            "VK_LAYER_KHRONOS_validation",
+        };
 
-        vkutils::enableDebugMessage();
+        std::vector<const char*> deviceExtensions = {
+            // For swapchain
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            // For ray tracing
+            VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
+            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+            VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
+        };
 
-        instance = vkutils::createInstance();
-        debugUtilsMessenger = vkutils::createDebugMessenger(instance.get());
-        surface = vkutils::createSurface(instance.get(), window);
-        device = vkutils::createLogicalDevice(instance.get(), surface.get());
-        graphicsQueue = vkutils::getGraphicsQueue(device.get());
+        // Create instance, device, queue
+        // Ray tracing requires Vulkan 1.2 or later
+        instance = vkutils::createInstance(VK_API_VERSION_1_2, layers);
+        debugMessenger = vkutils::createDebugMessenger(*instance);
+        surface = vkutils::createSurface(*instance, window);
+        physicalDevice =
+            vkutils::pickPhysicalDevice(*instance, *surface, deviceExtensions);
+        queueFamilyIndex =
+            vkutils::findGeneralQueueFamily(physicalDevice, *surface);
+        device = vkutils::createLogicalDevice(physicalDevice, queueFamilyIndex,
+                                              deviceExtensions);
+        queue = device->getQueue(queueFamilyIndex, 0);
 
-        swapChain = vkutils::createSwapChain(device.get(), surface.get());
-        swapChainImages = vkutils::getSwapChainImages(device.get(), swapChain.get());
-
-        commandPool = vkutils::createCommandPool(device.get());
-        commandBuffers = vkutils::createDrawCommandBuffers(device.get(), commandPool.get());
-    }
-
-    void mainLoop() {
-        while (!glfwWindowShouldClose(window)) {
-            glfwPollEvents();
-        }
-    }
-
-    void cleanup() {
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        // Create command buffers
+        commandPool = vkutils::createCommandPool(*device, queueFamilyIndex);
+        commandBuffer = vkutils::createCommandBuffer(*device, *commandPool);
     }
 };

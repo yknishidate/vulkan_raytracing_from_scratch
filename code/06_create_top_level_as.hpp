@@ -41,7 +41,7 @@ private:
     GLFWwindow* window;
 
     vk::UniqueInstance instance;
-    vk::UniqueDebugUtilsMessengerEXT debugUtilsMessenger;
+    vk::UniqueDebugUtilsMessengerEXT debugMessenger;
     vk::UniqueSurfaceKHR surface;
     vk::UniqueDevice device;
     vk::Queue graphicsQueue;
@@ -75,7 +75,7 @@ private:
         vkutils::enableDebugMessage();
 
         instance = vkutils::createInstance();
-        debugUtilsMessenger = vkutils::createDebugMessenger(instance.get());
+        debugMessenger = vkutils::createDebugMessenger(instance.get());
         surface = vkutils::createSurface(instance.get(), window);
         device = vkutils::createLogicalDevice(instance.get(), surface.get());
         graphicsQueue = vkutils::getGraphicsQueue(device.get());

@@ -17,17 +17,18 @@
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 namespace vkutils {
-static VKAPI_ATTR VkBool32 VKAPI_CALL
-debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                            VkDebugUtilsMessageTypeFlagsEXT messageTypes,
-                            VkDebugUtilsMessengerCallbackDataEXT const* pCallbackData,
-                            void* pUserData) {
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsMessengerCallback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+    VkDebugUtilsMessageTypeFlagsEXT messageTypes,
+    VkDebugUtilsMessengerCallbackDataEXT const* pCallbackData,
+    void* pUserData) {
     std::cerr << pCallbackData->pMessage << "\n\n";
     return VK_FALSE;
 }
 
 inline bool checkLayerSupport(const std::vector<const char*>& layers) {
-    std::vector<vk::LayerProperties> availableLayers = vk::enumerateInstanceLayerProperties();
+    std::vector<vk::LayerProperties> availableLayers =
+        vk::enumerateInstanceLayerProperties();
 
     for (const char* layerName : layers) {
         bool layerFound = false;
@@ -46,26 +47,31 @@ inline bool checkLayerSupport(const std::vector<const char*>& layers) {
 
 inline std::vector<const char*> getRequiredExtensions() {
     uint32_t glfwExtensionCount = 0;
-    const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+    const char** glfwExtensions =
+        glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
-    std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+    std::vector<const char*> extensions(glfwExtensions,
+                                        glfwExtensions + glfwExtensionCount);
     extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     return extensions;
 }
 
 inline vk::DebugUtilsMessengerCreateInfoEXT createDebugCreateInfo() {
     vk::DebugUtilsMessengerCreateInfoEXT createInfo{};
-    createInfo.setMessageSeverity(vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-                                  vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
-    createInfo.setMessageType(vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-                              vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
-                              vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
+    createInfo.setMessageSeverity(
+        vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+        vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
+    createInfo.setMessageType(
+        vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
+        vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
+        vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
     createInfo.setPfnUserCallback(&debugUtilsMessengerCallback);
     return createInfo;
 }
 
-inline vk::UniqueInstance createInstance(uint32_t apiVersion,
-                                         const std::vector<const char*>& layers) {
+inline vk::UniqueInstance createInstance(
+    uint32_t apiVersion,
+    const std::vector<const char*>& layers) {
     std::cout << "Create instance\n";
 
     // Setup dynamic loader
@@ -86,7 +92,8 @@ inline vk::UniqueInstance createInstance(uint32_t apiVersion,
 
     std::vector<const char*> extensions = getRequiredExtensions();
 
-    vk::DebugUtilsMessengerCreateInfoEXT debugCreateInfo = createDebugCreateInfo();
+    vk::DebugUtilsMessengerCreateInfoEXT debugCreateInfo =
+        createDebugCreateInfo();
 
     vk::InstanceCreateInfo instanceCreateInfo{};
     instanceCreateInfo.setPApplicationInfo(&appInfo);
@@ -98,27 +105,33 @@ inline vk::UniqueInstance createInstance(uint32_t apiVersion,
     return instance;
 }
 
-inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(vk::Instance instance) {
+inline vk::UniqueDebugUtilsMessengerEXT createDebugMessenger(
+    vk::Instance instance) {
     std::cout << "Create debug messenger\n";
     return instance.createDebugUtilsMessengerEXTUnique(createDebugCreateInfo());
 }
 
-inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance, GLFWwindow* window) {
+inline vk::UniqueSurfaceKHR createSurface(vk::Instance instance,
+                                          GLFWwindow* window) {
     std::cout << "Create surface\n";
 
     VkSurfaceKHR _surface;
-    if (glfwCreateWindowSurface(instance, window, nullptr, &_surface) != VK_SUCCESS) {
+    if (glfwCreateWindowSurface(instance, window, nullptr, &_surface) !=
+        VK_SUCCESS) {
         std::cerr << "Failed to create window surface.\n";
         std::abort();
     }
     return vk::UniqueSurfaceKHR{vk::SurfaceKHR(_surface), {instance}};
 }
 
-inline uint32_t findGeneralQueueFamily(vk::PhysicalDevice physicalDevice, vk::SurfaceKHR surface) {
+inline uint32_t findGeneralQueueFamily(vk::PhysicalDevice physicalDevice,
+                                       vk::SurfaceKHR surface) {
     auto queueFamilies = physicalDevice.getQueueFamilyProperties();
     for (uint32_t i = 0; i < queueFamilies.size(); i++) {
-        vk::Bool32 presentSupport = physicalDevice.getSurfaceSupportKHR(i, surface);
-        if (queueFamilies[i].queueFlags & vk::QueueFlagBits::eGraphics && presentSupport) {
+        vk::Bool32 presentSupport =
+            physicalDevice.getSurfaceSupportKHR(i, surface);
+        if (queueFamilies[i].queueFlags & vk::QueueFlagBits::eGraphics &&
+            presentSupport) {
             return i;
         }
     }
@@ -126,9 +139,11 @@ inline uint32_t findGeneralQueueFamily(vk::PhysicalDevice physicalDevice, vk::Su
     std::abort();
 }
 
-inline bool checkDeviceExtensionSupport(vk::PhysicalDevice device,
-                                        const std::vector<const char*>& deviceExtensions) {
-    std::set<std::string> requiredExtensions{deviceExtensions.begin(), deviceExtensions.end()};
+inline bool checkDeviceExtensionSupport(
+    vk::PhysicalDevice device,
+    const std::vector<const char*>& deviceExtensions) {
+    std::set<std::string> requiredExtensions{deviceExtensions.begin(),
+                                             deviceExtensions.end()};
     for (const auto& extension : device.enumerateDeviceExtensionProperties()) {
         requiredExtensions.erase(extension.extensionName);
     }
@@ -148,9 +163,10 @@ inline bool isDeviceSuitable(vk::PhysicalDevice physicalDevice,
     return true;
 }
 
-inline vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance,
-                                             vk::SurfaceKHR surface,
-                                             const std::vector<const char*>& deviceExtensions) {
+inline vk::PhysicalDevice pickPhysicalDevice(
+    vk::Instance instance,
+    vk::SurfaceKHR surface,
+    const std::vector<const char*>& deviceExtensions) {
     // Select suitable physical device
     for (const auto& device : instance.enumeratePhysicalDevices()) {
         if (isDeviceSuitable(device, surface, deviceExtensions)) {
@@ -163,19 +179,22 @@ inline vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance,
 }
 
 inline auto getRayTracingProps(vk::PhysicalDevice physicalDevice) {
-    auto deviceProperties =
-        physicalDevice.getProperties2<vk::PhysicalDeviceProperties2,
-                                      vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
-    return deviceProperties.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
+    auto deviceProperties = physicalDevice.getProperties2<
+        vk::PhysicalDeviceProperties2,
+        vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
+    return deviceProperties
+        .get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
 }
 
-inline vk::UniqueDevice createLogicalDevice(vk::PhysicalDevice physicalDevice,
-                                            uint32_t queueFamilyIndex,
-                                            const std::vector<const char*>& deviceExtensions) {
+inline vk::UniqueDevice createLogicalDevice(
+    vk::PhysicalDevice physicalDevice,
+    uint32_t queueFamilyIndex,
+    const std::vector<const char*>& deviceExtensions) {
     std::cout << "Create device\n";
 
     float queuePriority = 1.0f;
-    vk::DeviceQueueCreateInfo queueCreateInfo{{}, queueFamilyIndex, 1, &queuePriority};
+    vk::DeviceQueueCreateInfo queueCreateInfo{
+        {}, queueFamilyIndex, 1, &queuePriority};
 
     vk::DeviceCreateInfo deviceCreateInfo{};
     deviceCreateInfo.setQueueCreateInfos(queueCreateInfo);
@@ -188,14 +207,15 @@ inline vk::UniqueDevice createLogicalDevice(vk::PhysicalDevice physicalDevice,
         vk::PhysicalDeviceBufferDeviceAddressFeatures{VK_TRUE},
     };
 
-    vk::UniqueDevice device =
-        physicalDevice.createDeviceUnique(createInfoChain.get<vk::DeviceCreateInfo>());
+    vk::UniqueDevice device = physicalDevice.createDeviceUnique(
+        createInfoChain.get<vk::DeviceCreateInfo>());
     VULKAN_HPP_DEFAULT_DISPATCHER.init(device.get());
     return device;
 }
 
-inline vk::SurfaceFormatKHR chooseSwapSurfaceFormat(vk::PhysicalDevice physicalDevice,
-                                                    vk::SurfaceKHR surface) {
+inline vk::SurfaceFormatKHR chooseSurfaceFormat(
+    vk::PhysicalDevice physicalDevice,
+    vk::SurfaceKHR surface) {
     auto availableFormats = physicalDevice.getSurfaceFormatsKHR(surface);
     for (const auto& availableFormat : availableFormats) {
         if (availableFormat.format == vk::Format::eB8G8R8A8Unorm) {
@@ -205,9 +225,10 @@ inline vk::SurfaceFormatKHR chooseSwapSurfaceFormat(vk::PhysicalDevice physicalD
     return availableFormats[0];
 }
 
-inline vk::PresentModeKHR chooseSwapPresentMode(vk::PhysicalDevice physicalDevice,
-                                                vk::SurfaceKHR surface) {
-    auto availablePresentModes = physicalDevice.getSurfacePresentModesKHR(surface);
+inline vk::PresentModeKHR choosePresentMode(vk::PhysicalDevice physicalDevice,
+                                            vk::SurfaceKHR surface) {
+    auto availablePresentModes =
+        physicalDevice.getSurfacePresentModesKHR(surface);
     for (const auto& availablePresentMode : availablePresentModes) {
         if (availablePresentMode == vk::PresentModeKHR::eFifoRelaxed) {
             return availablePresentMode;
@@ -217,9 +238,9 @@ inline vk::PresentModeKHR chooseSwapPresentMode(vk::PhysicalDevice physicalDevic
     return vk::PresentModeKHR::eFifo;
 }
 
-inline vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR capabilities,
-                                     uint32_t width,
-                                     uint32_t height) {
+inline vk::Extent2D chooseExtent(vk::SurfaceCapabilitiesKHR capabilities,
+                                 uint32_t width,
+                                 uint32_t height) {
     if (capabilities.currentExtent.width != UINT32_MAX) {
         return capabilities.currentExtent;
     }
@@ -234,22 +255,25 @@ inline vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR capabilities,
     return actualExtent;
 }
 
-inline vk::UniqueSwapchainKHR createSwapchain(vk::PhysicalDevice physicalDevice,
-                                              vk::Device device,
-                                              vk::SurfaceKHR surface,
-                                              uint32_t queueFamilyIndex,
-                                              vk::ImageUsageFlags usage,
-                                              uint32_t width,
-                                              uint32_t height) {
+inline vk::UniqueSwapchainKHR createSwapchain(
+    vk::PhysicalDevice physicalDevice,
+    vk::Device device,
+    vk::SurfaceKHR surface,
+    uint32_t queueFamilyIndex,
+    vk::ImageUsageFlags usage,
+    vk::SurfaceFormatKHR surfaceFormat,
+    uint32_t width,
+    uint32_t height) {
     std::cout << "Create swapchain\n";
 
-    vk::SurfaceCapabilitiesKHR capabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
-    vk::SurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(physicalDevice, surface);
-    vk::PresentModeKHR presentMode = chooseSwapPresentMode(physicalDevice, surface);
-    vk::Extent2D extent = chooseSwapExtent(capabilities, width, height);
+    vk::SurfaceCapabilitiesKHR capabilities =
+        physicalDevice.getSurfaceCapabilitiesKHR(surface);
+    vk::PresentModeKHR presentMode = choosePresentMode(physicalDevice, surface);
+    vk::Extent2D extent = chooseExtent(capabilities, width, height);
 
     uint32_t imageCount = capabilities.minImageCount + 1;
-    if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
+    if (capabilities.maxImageCount > 0 &&
+        imageCount > capabilities.maxImageCount) {
         imageCount = capabilities.maxImageCount;
     }
 
@@ -275,8 +299,8 @@ inline uint32_t getMemoryType(vk::PhysicalDevice physicalDevice,
     auto physicalDeviceMemoryProperties = physicalDevice.getMemoryProperties();
     for (uint32_t i = 0; i < VK_MAX_MEMORY_TYPES; ++i) {
         if (memoryRequirements.memoryTypeBits & (1 << i)) {
-            if ((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & memoryProperties) ==
-                memoryProperties) {
+            if ((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags &
+                 memoryProperties) == memoryProperties) {
                 return i;
             }
         }
@@ -286,9 +310,11 @@ inline uint32_t getMemoryType(vk::PhysicalDevice physicalDevice,
     std::abort();
 }
 
-inline vk::UniqueCommandPool createCommandPool(vk::Device device, uint32_t queueFamilyIndex) {
+inline vk::UniqueCommandPool createCommandPool(vk::Device device,
+                                               uint32_t queueFamilyIndex) {
     vk::CommandPoolCreateInfo commandPoolCreateInfo{};
-    commandPoolCreateInfo.setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
+    commandPoolCreateInfo.setFlags(
+        vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
     commandPoolCreateInfo.setQueueFamilyIndex(queueFamilyIndex);
     return device.createCommandPoolUnique(commandPoolCreateInfo);
 }
@@ -316,14 +342,17 @@ inline void oneTimeSubmit(vk::Device device,
     queue.submit(submitInfo, fence.get());
 
     // Wait
-    if (device.waitForFences(fence.get(), true, std::numeric_limits<uint64_t>::max()) !=
+    if (device.waitForFences(fence.get(), true,
+                             std::numeric_limits<uint64_t>::max()) !=
         vk::Result::eSuccess) {
         std::cerr << "Failed to wait for fence.\n";
         std::abort();
     }
 }
 
-inline vk::UniqueCommandBuffer createCommandBuffer(vk::Device device, vk::CommandPool commandPool) {
+inline vk::UniqueCommandBuffer createCommandBuffer(
+    vk::Device device,
+    vk::CommandPool commandPool) {
     vk::CommandBufferAllocateInfo allocateInfo{};
     allocateInfo.setCommandPool(commandPool);
     allocateInfo.setLevel(vk::CommandBufferLevel::ePrimary);
@@ -346,7 +375,8 @@ inline std::vector<char> readFile(const std::string& filename) {
     return buffer;
 }
 
-inline vk::UniqueShaderModule createShaderModule(vk::Device device, const std::string& filename) {
+inline vk::UniqueShaderModule createShaderModule(vk::Device device,
+                                                 const std::string& filename) {
     const std::vector<char> code = readFile(filename);
     vk::ShaderModuleCreateInfo createInfo{};
     createInfo.setCodeSize(code.size());
@@ -354,14 +384,15 @@ inline vk::UniqueShaderModule createShaderModule(vk::Device device, const std::s
     return device.createShaderModuleUnique(createInfo);
 }
 
-inline void setImageLayout(
-    vk::CommandBuffer commandBuffer,
-    vk::Image image,
-    vk::ImageLayout oldImageLayout,
-    vk::ImageLayout newImageLayout,
-    vk::ImageSubresourceRange subresourceRange,
-    vk::PipelineStageFlags srcStageMask = vk::PipelineStageFlagBits::eAllCommands,
-    vk::PipelineStageFlags dstStageMask = vk::PipelineStageFlagBits::eAllCommands) {
+inline void setImageLayout(vk::CommandBuffer commandBuffer,
+                           vk::Image image,
+                           vk::ImageLayout oldImageLayout,
+                           vk::ImageLayout newImageLayout,
+                           vk::ImageSubresourceRange subresourceRange,
+                           vk::PipelineStageFlags srcStageMask =
+                               vk::PipelineStageFlagBits::eAllCommands,
+                           vk::PipelineStageFlags dstStageMask =
+                               vk::PipelineStageFlagBits::eAllCommands) {
     vk::ImageMemoryBarrier imageMemoryBarrier{};
     imageMemoryBarrier.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
     imageMemoryBarrier.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
@@ -379,16 +410,20 @@ inline void setImageLayout(
             imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eHostWrite;
             break;
         case vk::ImageLayout::eColorAttachmentOptimal:
-            imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            imageMemoryBarrier.srcAccessMask =
+                vk::AccessFlagBits::eColorAttachmentWrite;
             break;
         case vk::ImageLayout::eDepthStencilAttachmentOptimal:
-            imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+            imageMemoryBarrier.srcAccessMask =
+                vk::AccessFlagBits::eDepthStencilAttachmentWrite;
             break;
         case vk::ImageLayout::eTransferSrcOptimal:
-            imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
+            imageMemoryBarrier.srcAccessMask =
+                vk::AccessFlagBits::eTransferRead;
             break;
         case vk::ImageLayout::eTransferDstOptimal:
-            imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+            imageMemoryBarrier.srcAccessMask =
+                vk::AccessFlagBits::eTransferWrite;
             break;
         case vk::ImageLayout::eShaderReadOnlyOptimal:
             imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
@@ -400,22 +435,27 @@ inline void setImageLayout(
     // Target layouts (new)
     switch (newImageLayout) {
         case vk::ImageLayout::eTransferDstOptimal:
-            imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+            imageMemoryBarrier.dstAccessMask =
+                vk::AccessFlagBits::eTransferWrite;
             break;
         case vk::ImageLayout::eTransferSrcOptimal:
-            imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+            imageMemoryBarrier.dstAccessMask =
+                vk::AccessFlagBits::eTransferRead;
             break;
         case vk::ImageLayout::eColorAttachmentOptimal:
-            imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            imageMemoryBarrier.dstAccessMask =
+                vk::AccessFlagBits::eColorAttachmentWrite;
             break;
         case vk::ImageLayout::eDepthStencilAttachmentOptimal:
             imageMemoryBarrier.dstAccessMask =
-                imageMemoryBarrier.dstAccessMask | vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+                imageMemoryBarrier.dstAccessMask |
+                vk::AccessFlagBits::eDepthStencilAttachmentWrite;
             break;
         case vk::ImageLayout::eShaderReadOnlyOptimal:
             if (imageMemoryBarrier.srcAccessMask == vk::AccessFlags{}) {
                 imageMemoryBarrier.srcAccessMask =
-                    vk::AccessFlagBits::eHostWrite | vk::AccessFlagBits::eTransferWrite;
+                    vk::AccessFlagBits::eHostWrite |
+                    vk::AccessFlagBits::eTransferWrite;
             }
             imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
             break;

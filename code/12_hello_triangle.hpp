@@ -40,21 +40,22 @@ private:
 
     // Instance, Device, Queue
     vk::UniqueInstance instance;
-    vk::UniqueDebugUtilsMessengerEXT debugUtilsMessenger;
+    vk::UniqueDebugUtilsMessengerEXT debugMessenger;
     vk::UniqueSurfaceKHR surface;
     vk::PhysicalDevice physicalDevice;
     vk::UniqueDevice device;
     vk::Queue queue;
     uint32_t queueFamilyIndex{};
 
-    // Swapchain
-    vk::UniqueSwapchainKHR swapchain;
-    std::vector<vk::Image> swapchainImages;
-    std::vector<vk::UniqueImageView> swapchainImageViews;
-
     // Command buffer
     vk::UniqueCommandPool commandPool;
     vk::UniqueCommandBuffer commandBuffer;
+
+    // Swapchain
+    vk::SurfaceFormatKHR surfaceFormat;
+    vk::UniqueSwapchainKHR swapchain;
+    std::vector<vk::Image> swapchainImages;
+    std::vector<vk::UniqueImageView> swapchainImageViews;
 
     // Acceleration structure
     AccelStruct bottomAccel{};
@@ -106,11 +107,18 @@ private:
         // Create instance, device, queue
         // Ray tracing requires Vulkan 1.2 or later
         instance = vkutils::createInstance(VK_API_VERSION_1_2, layers);
-        debugUtilsMessenger = vkutils::createDebugMessenger(*instance);
+        debugMessenger = vkutils::createDebugMessenger(*instance);
         surface = vkutils::createSurface(*instance, window);
-        physicalDevice = vkutils::pickPhysicalDevice(*instance, *surface, deviceExtensions);
-        queueFamilyIndex = vkutils::findGeneralQueueFamily(physicalDevice, *surface);
-        device = vkutils::createLogicalDevice(physicalDevice, queueFamilyIndex, deviceExtensions);
+
+        physicalDevice = vkutils::pickPhysicalDevice(  //
+            *instance, *surface, deviceExtensions);
+
+        queueFamilyIndex = vkutils::findGeneralQueueFamily(  //
+            physicalDevice, *surface);
+
+        device = vkutils::createLogicalDevice(  //
+            physicalDevice, queueFamilyIndex, deviceExtensions);
+
         queue = device->getQueue(queueFamilyIndex, 0);
 
         // Create command buffers
@@ -119,8 +127,11 @@ private:
 
         // Create swapchain
         // Specify images as storage images
-        swapchain = vkutils::createSwapchain(physicalDevice, *device, *surface, queueFamilyIndex,
-                                             vk::ImageUsageFlagBits::eStorage, WIDTH, HEIGHT);
+        surfaceFormat = vkutils::chooseSurfaceFormat(physicalDevice, *surface);
+        swapchain = vkutils::createSwapchain(  //
+            physicalDevice, *device, *surface, queueFamilyIndex,
+            vk::ImageUsageFlagBits::eStorage, surfaceFormat,  //
+            WIDTH, HEIGHT);
         swapchainImages = device->getSwapchainImagesKHR(*swapchain);
         createSwapchainImageViews();
 
@@ -143,37 +154,45 @@ private:
             imageViewCreateInfo.setImage(image);
             imageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
             imageViewCreateInfo.setFormat(vk::Format::eB8G8R8A8Unorm);
-            imageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG,
-                                               vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
-            imageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-            swapchainImageViews.push_back(device->createImageViewUnique(imageViewCreateInfo));
+            imageViewCreateInfo.setComponents(
+                {vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG,
+                 vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
+            imageViewCreateInfo.setSubresourceRange(
+                {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+            swapchainImageViews.push_back(
+                device->createImageViewUnique(imageViewCreateInfo));
         }
 
-        vkutils::oneTimeSubmit(*device, *commandPool, queue, [&](vk::CommandBuffer commandBuffer) {
-            for (auto& image : swapchainImages) {
-                vkutils::setImageLayout(commandBuffer, image, vk::ImageLayout::eUndefined,
-                                        vk::ImageLayout::ePresentSrcKHR,
-                                        {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-            }
-        });
+        vkutils::oneTimeSubmit(
+            *device, *commandPool, queue, [&](vk::CommandBuffer commandBuffer) {
+                for (auto& image : swapchainImages) {
+                    vkutils::setImageLayout(
+                        commandBuffer, image, vk::ImageLayout::eUndefined,
+                        vk::ImageLayout::ePresentSrcKHR,
+                        {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+                }
+            });
     }
 
-    void buildAccelerationStructure(AccelStruct& accelStruct,
-                                    vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo,
-                                    vk::AccelerationStructureGeometryKHR geometry,
-                                    vk::AccelerationStructureTypeKHR type) {
+    void buildAccelerationStructure(
+        AccelStruct& accelStruct,
+        vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo,
+        vk::AccelerationStructureGeometryKHR geometry,
+        vk::AccelerationStructureTypeKHR type) {
         vk::AccelerationStructureKHR handle = *accelStruct.handle;
 
         // Create scratch buffer
-        Buffer scratchBuffer = createBuffer(
+        Buffer scratchBuffer = createBuffer(  //
             buildSizesInfo.buildScratchSize,
-            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            vk::BufferUsageFlagBits::eStorageBuffer |
+                vk::BufferUsageFlagBits::eShaderDeviceAddress,
             vk::MemoryPropertyFlagBits::eDeviceLocal);
 
         // Create build info
         vk::AccelerationStructureBuildGeometryInfoKHR geometryInfo{};
         geometryInfo.setType(type);
-        geometryInfo.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
+        geometryInfo.setFlags(
+            vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
         geometryInfo.setMode(vk::BuildAccelerationStructureModeKHR::eBuild);
         geometryInfo.setDstAccelerationStructure(handle);
         geometryInfo.setGeometries(geometry);
@@ -186,12 +205,15 @@ private:
         buildRangeInfo.setTransformOffset(0);
 
         // Build
-        vkutils::oneTimeSubmit(*device, *commandPool, queue, [&](vk::CommandBuffer commandBuffer) {
-            commandBuffer.buildAccelerationStructuresKHR(geometryInfo, &buildRangeInfo);
-        });
+        vkutils::oneTimeSubmit(*device, *commandPool, queue,
+                               [&](vk::CommandBuffer commandBuffer) {
+                                   commandBuffer.buildAccelerationStructuresKHR(
+                                       geometryInfo, &buildRangeInfo);
+                               });
 
         // Get address
-        accelStruct.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({handle});
+        accelStruct.buffer.deviceAddress =
+            device->getAccelerationStructureAddressKHR({handle});
     }
 
     void createBottomLevelAS() {
@@ -205,14 +227,18 @@ private:
 
         // Create vertex buffer and index buffer
         vk::BufferUsageFlags bufferUsage{
-            vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
+            vk::BufferUsageFlagBits::
+                eAccelerationStructureBuildInputReadOnlyKHR |
             vk::BufferUsageFlagBits::eShaderDeviceAddress};
-        vk::MemoryPropertyFlags memoryProperty{vk::MemoryPropertyFlagBits::eHostVisible |
-                                               vk::MemoryPropertyFlagBits::eHostCoherent};
-        Buffer vertexBuffer = createBuffer(vertices.size() * sizeof(Vertex),  //
-                                           bufferUsage, memoryProperty, vertices.data());
-        Buffer indexBuffer = createBuffer(indices.size() * sizeof(uint32_t),  //
-                                          bufferUsage, memoryProperty, indices.data());
+        vk::MemoryPropertyFlags memoryProperty{
+            vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent};
+        Buffer vertexBuffer = createBuffer(    //
+            vertices.size() * sizeof(Vertex),  //
+            bufferUsage, memoryProperty, vertices.data());
+        Buffer indexBuffer = createBuffer(      //
+            indices.size() * sizeof(uint32_t),  //
+            bufferUsage, memoryProperty, indices.data());
 
         // Create geometry
         vk::AccelerationStructureGeometryTrianglesDataKHR triangleData{};
@@ -231,29 +257,35 @@ private:
         // Get build info
         constexpr uint32_t primitiveCount = 1;
         vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo{};
-        buildGeometryInfo.setType(vk::AccelerationStructureTypeKHR::eBottomLevel);
-        buildGeometryInfo.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
+        buildGeometryInfo.setType(
+            vk::AccelerationStructureTypeKHR::eBottomLevel);
+        buildGeometryInfo.setFlags(
+            vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
         buildGeometryInfo.setGeometries(geometry);
         auto buildSizesInfo = device->getAccelerationStructureBuildSizesKHR(
-            vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
+            vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo,
+            primitiveCount);
 
         // Create buffer for AS
         bottomAccel.buffer = createBuffer(
             buildSizesInfo.accelerationStructureSize,
             vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
                 vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+            vk::MemoryPropertyFlagBits::eHostVisible |
+                vk::MemoryPropertyFlagBits::eHostCoherent);
 
         // Create AS
         vk::AccelerationStructureCreateInfoKHR createInfo{};
         createInfo.setBuffer(*bottomAccel.buffer.handle);
         createInfo.setSize(buildSizesInfo.accelerationStructureSize);
         createInfo.setType(vk::AccelerationStructureTypeKHR::eBottomLevel);
-        bottomAccel.handle = device->createAccelerationStructureKHRUnique(createInfo);
+        bottomAccel.handle =
+            device->createAccelerationStructureKHRUnique(createInfo);
 
         // Build
-        buildAccelerationStructure(bottomAccel, buildSizesInfo, geometry,
-                                   vk::AccelerationStructureTypeKHR::eBottomLevel);
+        buildAccelerationStructure(
+            bottomAccel, buildSizesInfo, geometry,
+            vk::AccelerationStructureTypeKHR::eBottomLevel);
     }
 
     void createTopLevelAS() {
@@ -268,15 +300,19 @@ private:
         accelInstance.setInstanceCustomIndex(0);
         accelInstance.setMask(0xFF);
         accelInstance.setInstanceShaderBindingTableRecordOffset(0);
-        accelInstance.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
-        accelInstance.setAccelerationStructureReference(bottomAccel.buffer.deviceAddress);
+        accelInstance.setFlags(
+            vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
+        accelInstance.setAccelerationStructureReference(
+            bottomAccel.buffer.deviceAddress);
 
-        Buffer instancesBuffer = createBuffer(
-            sizeof(vk::AccelerationStructureInstanceKHR),
-            vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
-                vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-            &accelInstance);
+        Buffer instancesBuffer =
+            createBuffer(sizeof(vk::AccelerationStructureInstanceKHR),
+                         vk::BufferUsageFlagBits::
+                                 eAccelerationStructureBuildInputReadOnlyKHR |
+                             vk::BufferUsageFlagBits::eShaderDeviceAddress,
+                         vk::MemoryPropertyFlagBits::eHostVisible |
+                             vk::MemoryPropertyFlagBits::eHostCoherent,
+                         &accelInstance);
 
         vk::AccelerationStructureGeometryInstancesDataKHR instancesData{};
         instancesData.setArrayOfPointers(false);
@@ -289,26 +325,30 @@ private:
 
         vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo{};
         buildGeometryInfo.setType(vk::AccelerationStructureTypeKHR::eTopLevel);
-        buildGeometryInfo.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
+        buildGeometryInfo.setFlags(
+            vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
         buildGeometryInfo.setGeometries(geometry);
 
         constexpr uint32_t primitiveCount = 1;
         auto buildSizesInfo = device->getAccelerationStructureBuildSizesKHR(
-            vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
+            vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo,
+            primitiveCount);
 
         // Create buffer for AS
         topAccel.buffer = createBuffer(
             buildSizesInfo.accelerationStructureSize,
             vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
                 vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+            vk::MemoryPropertyFlagBits::eHostVisible |
+                vk::MemoryPropertyFlagBits::eHostCoherent);
 
         // Create AS
         vk::AccelerationStructureCreateInfoKHR createInfo{};
         createInfo.setBuffer(*topAccel.buffer.handle);
         createInfo.setSize(buildSizesInfo.accelerationStructureSize);
         createInfo.setType(vk::AccelerationStructureTypeKHR::eTopLevel);
-        topAccel.handle = device->createAccelerationStructureKHRUnique(createInfo);
+        topAccel.handle =
+            device->createAccelerationStructureKHRUnique(createInfo);
 
         // Build
         buildAccelerationStructure(topAccel, buildSizesInfo, geometry,
@@ -319,7 +359,8 @@ private:
         std::vector<vk::DescriptorSetLayoutBinding> bindings(2);
         // [0]: For AS
         bindings[0].setBinding(0);
-        bindings[0].setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR);
+        bindings[0].setDescriptorType(
+            vk::DescriptorType::eAccelerationStructureKHR);
         bindings[0].setDescriptorCount(1);
         bindings[0].setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
         // [1]: For storage image
@@ -330,7 +371,8 @@ private:
 
         vk::DescriptorSetLayoutCreateInfo layoutCreateInfo{};
         layoutCreateInfo.setBindings(bindings);
-        descriptorSetLayout = device->createDescriptorSetLayoutUnique(layoutCreateInfo);
+        descriptorSetLayout =
+            device->createDescriptorSetLayoutUnique(layoutCreateInfo);
     }
 
     void prepareShaderStages() {
@@ -342,14 +384,15 @@ private:
         shaderGroups.resize(3);
 
         // Ray generation group
-        shaderModules[raygenIndex] =
-            vkutils::createShaderModule(*device, SHADER_DIR + "raygen.rgen.spv");
+        shaderModules[raygenIndex] = vkutils::createShaderModule(
+            *device, SHADER_DIR + "raygen.rgen.spv");
 
         shaderStages[raygenIndex].setStage(vk::ShaderStageFlagBits::eRaygenKHR);
         shaderStages[raygenIndex].setModule(*shaderModules[raygenIndex]);
         shaderStages[raygenIndex].setPName("main");
 
-        shaderGroups[raygenIndex].setType(vk::RayTracingShaderGroupTypeKHR::eGeneral);
+        shaderGroups[raygenIndex].setType(
+            vk::RayTracingShaderGroupTypeKHR::eGeneral);
         shaderGroups[raygenIndex].setGeneralShader(raygenIndex);
         shaderGroups[raygenIndex].setClosestHitShader(VK_SHADER_UNUSED_KHR);
         shaderGroups[raygenIndex].setAnyHitShader(VK_SHADER_UNUSED_KHR);
@@ -363,21 +406,24 @@ private:
         shaderStages[missIndex].setModule(*shaderModules[missIndex]);
         shaderStages[missIndex].setPName("main");
 
-        shaderGroups[missIndex].setType(vk::RayTracingShaderGroupTypeKHR::eGeneral);
+        shaderGroups[missIndex].setType(
+            vk::RayTracingShaderGroupTypeKHR::eGeneral);
         shaderGroups[missIndex].setGeneralShader(missIndex);
         shaderGroups[missIndex].setClosestHitShader(VK_SHADER_UNUSED_KHR);
         shaderGroups[missIndex].setAnyHitShader(VK_SHADER_UNUSED_KHR);
         shaderGroups[missIndex].setIntersectionShader(VK_SHADER_UNUSED_KHR);
 
         // Ray closest hit group
-        shaderModules[chitIndex] =
-            vkutils::createShaderModule(*device, SHADER_DIR + "closesthit.rchit.spv");
+        shaderModules[chitIndex] = vkutils::createShaderModule(
+            *device, SHADER_DIR + "closesthit.rchit.spv");
 
-        shaderStages[chitIndex].setStage(vk::ShaderStageFlagBits::eClosestHitKHR);
+        shaderStages[chitIndex].setStage(
+            vk::ShaderStageFlagBits::eClosestHitKHR);
         shaderStages[chitIndex].setModule(*shaderModules[chitIndex]);
         shaderStages[chitIndex].setPName("main");
 
-        shaderGroups[chitIndex].setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup);
+        shaderGroups[chitIndex].setType(
+            vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup);
         shaderGroups[chitIndex].setGeneralShader(VK_SHADER_UNUSED_KHR);
         shaderGroups[chitIndex].setClosestHitShader(chitIndex);
         shaderGroups[chitIndex].setAnyHitShader(VK_SHADER_UNUSED_KHR);
@@ -396,7 +442,8 @@ private:
         createInfo.setStages(shaderStages);
         createInfo.setGroups(shaderGroups);
         createInfo.setMaxPipelineRayRecursionDepth(1);
-        auto result = device->createRayTracingPipelineKHRUnique(nullptr, nullptr, createInfo);
+        auto result = device->createRayTracingPipelineKHRUnique(
+            nullptr, nullptr, createInfo);
         if (result.result != vk::Result::eSuccess) {
             std::cerr << "Failed to create ray tracing pipeline.\n";
             std::abort();
@@ -406,35 +453,43 @@ private:
 
     void createShaderBindingTable() {
         // Get RT props
-        auto rayTracingPipelineProperties = vkutils::getRayTracingProps(physicalDevice);
+        auto rayTracingPipelineProperties =
+            vkutils::getRayTracingProps(physicalDevice);
         handleSize = rayTracingPipelineProperties.shaderGroupHandleSize;
-        handleAlignment = rayTracingPipelineProperties.shaderGroupHandleAlignment;
-        handleSizeAligned = vkutils::getAlignedSize(handleSize, handleAlignment);
+        handleAlignment =
+            rayTracingPipelineProperties.shaderGroupHandleAlignment;
+        handleSizeAligned =
+            vkutils::getAlignedSize(handleSize, handleAlignment);
 
         const uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
         const uint32_t sbtSize = groupCount * handleSizeAligned;
 
         // Get shader group handles
         std::vector<uint8_t> shaderHandleStorage(sbtSize);
-        auto result = device->getRayTracingShaderGroupHandlesKHR(*pipeline, 0, groupCount, sbtSize,
-                                                                 shaderHandleStorage.data());
+        auto result = device->getRayTracingShaderGroupHandlesKHR(
+            *pipeline, 0, groupCount, sbtSize, shaderHandleStorage.data());
         if (result != vk::Result::eSuccess) {
             std::cerr << "Failed to get ray tracing shader group handles.\n";
             std::abort();
         }
 
         // Create SBT
-        vk::BufferUsageFlags sbtBufferUsageFlags = vk::BufferUsageFlagBits::eShaderBindingTableKHR |
-                                                   vk::BufferUsageFlagBits::eTransferSrc |
-                                                   vk::BufferUsageFlagBits::eShaderDeviceAddress;
-        vk::MemoryPropertyFlags sbtMemoryProperty = vk::MemoryPropertyFlagBits::eHostVisible |  //
-                                                    vk::MemoryPropertyFlagBits::eHostCoherent;
-        raygenShaderBindingTable = createBuffer(handleSize, sbtBufferUsageFlags, sbtMemoryProperty,
-                                                shaderHandleStorage.data() + 0 * handleSizeAligned);
-        missShaderBindingTable = createBuffer(handleSize, sbtBufferUsageFlags, sbtMemoryProperty,
-                                              shaderHandleStorage.data() + 1 * handleSizeAligned);
-        hitShaderBindingTable = createBuffer(handleSize, sbtBufferUsageFlags, sbtMemoryProperty,
-                                             shaderHandleStorage.data() + 2 * handleSizeAligned);
+        vk::BufferUsageFlags sbtBufferUsageFlags =
+            vk::BufferUsageFlagBits::eShaderBindingTableKHR |
+            vk::BufferUsageFlagBits::eTransferSrc |
+            vk::BufferUsageFlagBits::eShaderDeviceAddress;
+        vk::MemoryPropertyFlags sbtMemoryProperty =
+            vk::MemoryPropertyFlagBits::eHostVisible |  //
+            vk::MemoryPropertyFlagBits::eHostCoherent;
+        raygenShaderBindingTable =
+            createBuffer(handleSize, sbtBufferUsageFlags, sbtMemoryProperty,
+                         shaderHandleStorage.data() + 0 * handleSizeAligned);
+        missShaderBindingTable =
+            createBuffer(handleSize, sbtBufferUsageFlags, sbtMemoryProperty,
+                         shaderHandleStorage.data() + 1 * handleSizeAligned);
+        hitShaderBindingTable =
+            createBuffer(handleSize, sbtBufferUsageFlags, sbtMemoryProperty,
+                         shaderHandleStorage.data() + 2 * handleSizeAligned);
     }
 
     void createDescriptorPool() {
@@ -446,15 +501,18 @@ private:
         vk::DescriptorPoolCreateInfo descriptorPoolCreateInfo{};
         descriptorPoolCreateInfo.setPoolSizes(poolSizes);
         descriptorPoolCreateInfo.setMaxSets(1);
-        descriptorPoolCreateInfo.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
-        descriptorPool = device->createDescriptorPoolUnique(descriptorPoolCreateInfo);
+        descriptorPoolCreateInfo.setFlags(
+            vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
+        descriptorPool =
+            device->createDescriptorPoolUnique(descriptorPoolCreateInfo);
     }
 
     void createDescriptorSets() {
         vk::DescriptorSetAllocateInfo allocateInfo{};
         allocateInfo.setDescriptorPool(*descriptorPool);
         allocateInfo.setSetLayouts(*descriptorSetLayout);
-        descriptorSet = std::move(device->allocateDescriptorSetsUnique(allocateInfo).front());
+        descriptorSet = std::move(
+            device->allocateDescriptorSetsUnique(allocateInfo).front());
     }
 
     void updateDescriptorSets(vk::ImageView imageView) {
@@ -466,7 +524,8 @@ private:
         writes[0].setDstSet(*descriptorSet);
         writes[0].setDstBinding(0);
         writes[0].setDescriptorCount(1);
-        writes[0].setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR);
+        writes[0].setDescriptorType(
+            vk::DescriptorType::eAccelerationStructureKHR);
         writes[0].setPNext(&accelInfo);
 
         // [0]: For storage image
@@ -494,11 +553,12 @@ private:
         subresourceRange.setBaseArrayLayer(0);
         subresourceRange.setLayerCount(1);
         vkutils::setImageLayout(*commandBuffer, image,  //
-                                vk::ImageLayout::ePresentSrcKHR, vk::ImageLayout::eGeneral,
-                                subresourceRange);
+                                vk::ImageLayout::ePresentSrcKHR,
+                                vk::ImageLayout::eGeneral, subresourceRange);
 
         // Bind pipeline
-        commandBuffer->bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
+        commandBuffer->bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
+                                    *pipeline);
 
         // Bind desc set
         commandBuffer->bindDescriptorSets(
@@ -536,7 +596,8 @@ private:
 
         // Set image layout to present src
         vkutils::setImageLayout(*commandBuffer, image,  //
-                                vk::ImageLayout::eGeneral, vk::ImageLayout::ePresentSrcKHR,
+                                vk::ImageLayout::eGeneral,
+                                vk::ImageLayout::ePresentSrcKHR,
                                 subresourceRange);
 
         // End
@@ -553,8 +614,9 @@ private:
             device->createSemaphoreUnique(semaphoreCreateInfo);
 
         // Acquire next image
-        auto result = device->acquireNextImageKHR(*swapchain, std::numeric_limits<uint64_t>::max(),
-                                                  *imageAvailableSemaphore);
+        auto result = device->acquireNextImageKHR(
+            *swapchain, std::numeric_limits<uint64_t>::max(),
+            *imageAvailableSemaphore);
         if (result.result != vk::Result::eSuccess) {
             std::cerr << "Failed to acquire next image.\n";
             std::abort();
@@ -568,7 +630,8 @@ private:
         recordCommandBuffer(swapchainImages[imageIndex]);
 
         // Submit command buffer
-        vk::PipelineStageFlags waitStage{vk::PipelineStageFlagBits::eRayTracingShaderKHR};
+        vk::PipelineStageFlags waitStage{
+            vk::PipelineStageFlagBits::eRayTracingShaderKHR};
         vk::SubmitInfo submitInfo{};
         submitInfo.setWaitDstStageMask(waitStage);
         submitInfo.setCommandBuffers(*commandBuffer);
@@ -611,10 +674,11 @@ private:
 
         vk::MemoryAllocateInfo allocateInfo{};
         allocateInfo.setAllocationSize(memoryRequirements.size);
-        allocateInfo.setMemoryTypeIndex(
-            vkutils::getMemoryType(physicalDevice, memoryRequirements, memoryProperty));
+        allocateInfo.setMemoryTypeIndex(vkutils::getMemoryType(
+            physicalDevice, memoryRequirements, memoryProperty));
         allocateInfo.setPNext(&memoryFlagsInfo);
-        vk::UniqueDeviceMemory deviceMemory = device->allocateMemoryUnique(allocateInfo);
+        vk::UniqueDeviceMemory deviceMemory =
+            device->allocateMemoryUnique(allocateInfo);
 
         // Bind buffer to memory
         device->bindBufferMemory(*buffer, *deviceMemory, 0);
