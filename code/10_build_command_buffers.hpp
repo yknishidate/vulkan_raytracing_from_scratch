@@ -104,7 +104,7 @@ private:
 
         createRayTracingPipeLine();
         createShaderBindingTable();
-        createDescriptorSets();
+        createDescriptorSet();
         buildCommandBuffers();
     }
 
@@ -432,7 +432,7 @@ private:
                                              shaderHandleStorage.data() + 2 * handleSizeAligned);
     }
 
-    void createDescriptorSets() {
+    void createDescriptorSet() {
         // まずはディスクリプタプールを用意する
         std::vector<vk::DescriptorPoolSize> poolSizes = {
             {vk::DescriptorType::eAccelerationStructureKHR, 1},

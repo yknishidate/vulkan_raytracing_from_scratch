@@ -4,10 +4,6 @@
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
-struct Vertex {
-    float pos[3];
-};
-
 struct Buffer {
     vk::UniqueBuffer buffer;
     vk::UniqueDeviceMemory memory;
@@ -58,6 +54,10 @@ struct Buffer {
             address = device.getBufferAddressKHR(&addressInfo);
         }
     }
+};
+
+struct Vertex {
+    float pos[3];
 };
 
 struct AccelStruct {
@@ -254,7 +254,7 @@ private:
         prepareShaderStages();
         createRayTracingPipeline();
         createShaderBindingTable();
-        createDescriptorSets();
+        createDescriptorSet();
     }
 
     void createSwapchainImageViews() {
@@ -283,6 +283,8 @@ private:
     }
 
     void createBottomLevelAS() {
+        std::cout << "Create BLAS\n";
+
         // Prepare a triangle data
         std::vector<Vertex> vertices = {
             {{1.0f, 1.0f, 0.0f}},
@@ -330,6 +332,8 @@ private:
     }
 
     void createTopLevelAS() {
+        std::cout << "Create TLAS\n";
+
         // Create instance
         vk::TransformMatrixKHR transform = std::array{
             std::array{1.0f, 0.0f, 0.0f, 0.0f},
@@ -441,6 +445,8 @@ private:
     }
 
     void createRayTracingPipeline() {
+        std::cout << "Create pipeline\n";
+
         // Create pipeline layout
         vk::PipelineLayoutCreateInfo layoutCreateInfo{};
         layoutCreateInfo.setSetLayouts(*descSetLayout);
@@ -515,7 +521,9 @@ private:
         descPool = device->createDescriptorPoolUnique(createInfo);
     }
 
-    void createDescriptorSets() {
+    void createDescriptorSet() {
+        std::cout << "Create desc set\n";
+
         vk::DescriptorSetAllocateInfo allocateInfo{};
         allocateInfo.setDescriptorPool(*descPool);
         allocateInfo.setSetLayouts(*descSetLayout);

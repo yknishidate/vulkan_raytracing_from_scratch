@@ -4,28 +4,128 @@
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
-struct StorageImage {
+struct Buffer {
+    vk::UniqueBuffer buffer;
     vk::UniqueDeviceMemory memory;
-    vk::UniqueImage image;
-    vk::UniqueImageView view;
-    vk::Format format;
-    uint32_t width;
-    uint32_t height;
+    vk::DeviceAddress address{};
+
+    void init(vk::PhysicalDevice physicalDevice,
+              vk::Device device,
+              vk::DeviceSize size,
+              vk::BufferUsageFlags usage,
+              vk::MemoryPropertyFlags memoryProperty,
+              const void* data = nullptr) {
+        // Create buffer
+        vk::BufferCreateInfo createInfo{};
+        createInfo.setSize(size);
+        createInfo.setUsage(usage);
+        buffer = device.createBufferUnique(createInfo);
+
+        // Allocate memory
+        vk::MemoryRequirements memoryReq =
+            device.getBufferMemoryRequirements(*buffer);
+        vk::MemoryAllocateFlagsInfo allocateFlags{};
+        if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
+            allocateFlags.flags = vk::MemoryAllocateFlagBits::eDeviceAddress;
+        }
+
+        uint32_t memoryType = vkutils::getMemoryType(physicalDevice,  //
+                                                     memoryReq, memoryProperty);
+        vk::MemoryAllocateInfo allocateInfo{};
+        allocateInfo.setAllocationSize(memoryReq.size);
+        allocateInfo.setMemoryTypeIndex(memoryType);
+        allocateInfo.setPNext(&allocateFlags);
+        memory = device.allocateMemoryUnique(allocateInfo);
+
+        // Bind buffer to memory
+        device.bindBufferMemory(*buffer, *memory, 0);
+
+        // Copy data
+        if (data) {
+            void* mappedPtr = device.mapMemory(*memory, 0, size);
+            memcpy(mappedPtr, data, size);
+            device.unmapMemory(*memory);
+        }
+
+        // Get address
+        if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
+            vk::BufferDeviceAddressInfoKHR addressInfo{};
+            addressInfo.setBuffer(*buffer);
+            address = device.getBufferAddressKHR(&addressInfo);
+        }
+    }
 };
 
 struct Vertex {
     float pos[3];
 };
 
-struct Buffer {
-    vk::UniqueBuffer handle;
-    vk::UniqueDeviceMemory memory;
-    uint64_t address;
-};
-
-struct AccelerationStructure {
-    vk::UniqueAccelerationStructureKHR handle;
+struct AccelStruct {
+    vk::UniqueAccelerationStructureKHR accel;
     Buffer buffer;
+
+    void init(vk::PhysicalDevice physicalDevice,
+              vk::Device device,
+              vk::CommandPool commandPool,
+              vk::Queue queue,
+              vk::AccelerationStructureTypeKHR type,
+              vk::AccelerationStructureGeometryKHR geometry,
+              uint32_t primitiveCount) {
+        // Get build info
+        vk::AccelerationStructureBuildGeometryInfoKHR buildInfo{};
+        buildInfo.setType(type);
+        buildInfo.setMode(vk::BuildAccelerationStructureModeKHR::eBuild);
+        buildInfo.setFlags(
+            vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
+        buildInfo.setGeometries(geometry);
+
+        vk::AccelerationStructureBuildSizesInfoKHR buildSizes =
+            device.getAccelerationStructureBuildSizesKHR(
+                vk::AccelerationStructureBuildTypeKHR::eDevice, buildInfo,
+                primitiveCount);
+
+        // Create buffer for AS
+        buffer.init(physicalDevice, device,
+                    buildSizes.accelerationStructureSize,
+                    vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR,
+                    vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+        // Create AS
+        vk::AccelerationStructureCreateInfoKHR createInfo{};
+        createInfo.setBuffer(*buffer.buffer);
+        createInfo.setSize(buildSizes.accelerationStructureSize);
+        createInfo.setType(type);
+        accel = device.createAccelerationStructureKHRUnique(createInfo);
+
+        // Create scratch buffer
+        Buffer scratchBuffer;
+        scratchBuffer.init(physicalDevice, device, buildSizes.buildScratchSize,
+                           vk::BufferUsageFlagBits::eStorageBuffer |
+                               vk::BufferUsageFlagBits::eShaderDeviceAddress,
+                           vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+        buildInfo.setDstAccelerationStructure(*accel);
+        buildInfo.setScratchData(scratchBuffer.address);
+
+        vk::AccelerationStructureBuildRangeInfoKHR buildRangeInfo{};
+        buildRangeInfo.setPrimitiveCount(primitiveCount);
+        buildRangeInfo.setPrimitiveOffset(0);
+        buildRangeInfo.setFirstVertex(0);
+        buildRangeInfo.setTransformOffset(0);
+
+        // Build
+        vkutils::oneTimeSubmit(          //
+            device, commandPool, queue,  //
+            [&](vk::CommandBuffer commandBuffer) {
+                commandBuffer.buildAccelerationStructuresKHR(buildInfo,
+                                                             &buildRangeInfo);
+            });
+
+        // Get address
+        vk::AccelerationStructureDeviceAddressInfoKHR addressInfo{};
+        addressInfo.setAccelerationStructure(*accel);
+        buffer.address = device.getAccelerationStructureAddressKHR(addressInfo);
+    }
 };
 
 class Application {
@@ -33,235 +133,163 @@ public:
     void run() {
         initWindow();
         initVulkan();
-        mainLoop();
-        cleanup();
+
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+        }
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
     }
 
 private:
-    GLFWwindow* window;
+    GLFWwindow* window = nullptr;
 
+    // Instance, Device, Queue
     vk::UniqueInstance instance;
     vk::UniqueDebugUtilsMessengerEXT debugMessenger;
     vk::UniqueSurfaceKHR surface;
+    vk::PhysicalDevice physicalDevice;
     vk::UniqueDevice device;
-    vk::Queue graphicsQueue;
+    vk::Queue queue;
+    uint32_t queueFamilyIndex{};
 
-    vk::UniqueSwapchainKHR swapChain;
-    std::vector<vk::Image> swapChainImages;
-
+    // Command buffer
     vk::UniqueCommandPool commandPool;
-    std::vector<vk::UniqueCommandBuffer> commandBuffers;
+    vk::UniqueCommandBuffer commandBuffer;
 
-    StorageImage storageImage;
+    // Swapchain
+    vk::SurfaceFormatKHR surfaceFormat;
+    vk::UniqueSwapchainKHR swapchain;
+    std::vector<vk::Image> swapchainImages;
+    std::vector<vk::UniqueImageView> swapchainImageViews;
 
-    AccelerationStructure blas;
+    // Acceleration structure
+    AccelStruct bottomAccel{};
 
     void initWindow() {
         glfwInit();
-
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
 
     void initVulkan() {
-        std::vector<const char*> deviceExtensions = {// レイトレーシング拡張
-                                                     VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-                                                     VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME};
-        vkutils::addDeviceExtensions(deviceExtensions);
+        std::vector<const char*> layers = {
+            "VK_LAYER_KHRONOS_validation",
+        };
 
-        vkutils::enableDebugMessage();
+        std::vector<const char*> deviceExtensions = {
+            // For swapchain
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            // For ray tracing
+            VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
+            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+            VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
+        };
 
-        instance = vkutils::createInstance();
-        debugMessenger = vkutils::createDebugMessenger(instance.get());
-        surface = vkutils::createSurface(instance.get(), window);
-        device = vkutils::createLogicalDevice(instance.get(), surface.get());
-        graphicsQueue = vkutils::getGraphicsQueue(device.get());
+        // Create instance, device, queue
+        // Ray tracing requires Vulkan 1.2 or later
+        instance = vkutils::createInstance(VK_API_VERSION_1_2, layers);
+        debugMessenger = vkutils::createDebugMessenger(*instance);
+        surface = vkutils::createSurface(*instance, window);
+        physicalDevice =
+            vkutils::pickPhysicalDevice(*instance, *surface, deviceExtensions);
+        queueFamilyIndex =
+            vkutils::findGeneralQueueFamily(physicalDevice, *surface);
+        device = vkutils::createLogicalDevice(physicalDevice, queueFamilyIndex,
+                                              deviceExtensions);
+        queue = device->getQueue(queueFamilyIndex, 0);
 
-        swapChain = vkutils::createSwapChain(device.get(), surface.get());
-        swapChainImages = vkutils::getSwapChainImages(device.get(), swapChain.get());
+        // Create command buffers
+        commandPool = vkutils::createCommandPool(*device, queueFamilyIndex);
+        commandBuffer = vkutils::createCommandBuffer(*device, *commandPool);
 
-        commandPool = vkutils::createCommandPool(device.get());
-        commandBuffers = vkutils::createDrawCommandBuffers(device.get(), commandPool.get());
-
-        createStorageImage();
-        createBottomLevelAS();
+        // Create swapchain
+        // Specify images as storage images
+        surfaceFormat = vkutils::chooseSurfaceFormat(physicalDevice, *surface);
+        swapchain = vkutils::createSwapchain(
+            physicalDevice, *device, *surface, queueFamilyIndex,
+            vk::ImageUsageFlagBits::eStorage, surfaceFormat, WIDTH, HEIGHT);
+        swapchainImages = device->getSwapchainImagesKHR(*swapchain);
+        createSwapchainImageViews();
     }
 
-    void createStorageImage() {
-        storageImage.width = WIDTH;
-        storageImage.height = HEIGHT;
+    void createSwapchainImageViews() {
+        for (auto& image : swapchainImages) {
+            vk::ImageViewCreateInfo imageViewCreateInfo{};
+            imageViewCreateInfo.setImage(image);
+            imageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
+            imageViewCreateInfo.setFormat(surfaceFormat.format);
+            imageViewCreateInfo.setComponents(
+                {vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG,
+                 vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
+            imageViewCreateInfo.setSubresourceRange(
+                {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+            swapchainImageViews.push_back(
+                device->createImageViewUnique(imageViewCreateInfo));
+        }
 
-        // Imageハンドルを作成する
-        storageImage.image = device->createImageUnique(
-            vk::ImageCreateInfo{}
-                .setImageType(vk::ImageType::e2D)
-                .setFormat(vk::Format::eB8G8R8A8Unorm)
-                .setExtent({storageImage.width, storageImage.height, 1})
-                .setMipLevels(1)
-                .setArrayLayers(1)
-                .setUsage(vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage));
-
-        // メモリ確保を行いバインドする
-        auto memoryRequirements = device->getImageMemoryRequirements(storageImage.image.get());
-        storageImage.memory = device->allocateMemoryUnique(
-            vk::MemoryAllocateInfo{}
-                .setAllocationSize(memoryRequirements.size)
-                .setMemoryTypeIndex(vkutils::getMemoryType(
-                    memoryRequirements, vk::MemoryPropertyFlagBits::eDeviceLocal)));
-        device->bindImageMemory(storageImage.image.get(), storageImage.memory.get(), 0);
-
-        // Image Viewを作成する
-        storageImage.view = device->createImageViewUnique(
-            vk::ImageViewCreateInfo{}
-                .setImage(storageImage.image.get())
-                .setViewType(vk::ImageViewType::e2D)
-                .setFormat(vk::Format::eB8G8R8A8Unorm)
-                .setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}));
-
-        // Image レイアウトをGeneralにしておく
-        auto commandBuffer = vkutils::createCommandBuffer(device.get(), commandPool.get(), true);
-
-        vkutils::setImageLayout(commandBuffer.get(), storageImage.image.get(),
-                                vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral,
-                                {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-
-        vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
+        vkutils::oneTimeSubmit(
+            *device, *commandPool, queue, [&](vk::CommandBuffer commandBuffer) {
+                for (auto& image : swapchainImages) {
+                    vkutils::setImageLayout(
+                        commandBuffer, image,  //
+                        vk::ImageLayout::eUndefined,
+                        vk::ImageLayout::ePresentSrcKHR,
+                        {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+                }
+            });
     }
 
     void createBottomLevelAS() {
-        // 三角形のデータを用意
+        std::cout << "Create BLAS\n";
+
+        // Prepare a triangle data
         std::vector<Vertex> vertices = {
-            {{1.0f, 1.0f, 0.0f}}, {{-1.0f, 1.0f, 0.0f}}, {{0.0f, -1.0f, 0.0f}}};
+            {{1.0f, 1.0f, 0.0f}},
+            {{-1.0f, 1.0f, 0.0f}},
+            {{0.0f, -1.0f, 0.0f}},
+        };
         std::vector<uint32_t> indices = {0, 1, 2};
 
-        // データからバッファを作成
-        auto vertexBufferSize = vertices.size() * sizeof(Vertex);
-        auto indexBufferSize = indices.size() * sizeof(uint32_t);
+        // Create vertex buffer and index buffer
         vk::BufferUsageFlags bufferUsage{
-            vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
-            vk::BufferUsageFlagBits::eShaderDeviceAddress |
-            vk::BufferUsageFlagBits::eStorageBuffer};
-        vk::MemoryPropertyFlags memoryProperty{vk::MemoryPropertyFlagBits::eHostVisible |
-                                               vk::MemoryPropertyFlagBits::eHostCoherent};
-        Buffer vertexBuffer =
-            createBuffer(vertexBufferSize, bufferUsage, memoryProperty, vertices.data());
-        Buffer indexBuffer =
-            createBuffer(indexBufferSize, bufferUsage, memoryProperty, indices.data());
+            vk::BufferUsageFlagBits::
+                eAccelerationStructureBuildInputReadOnlyKHR |
+            vk::BufferUsageFlagBits::eShaderDeviceAddress};
+        vk::MemoryPropertyFlags memoryProperty{
+            vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent};
+        Buffer vertexBuffer;
+        Buffer indexBuffer;
+        vertexBuffer.init(physicalDevice, *device,           //
+                          vertices.size() * sizeof(Vertex),  //
+                          bufferUsage, memoryProperty, vertices.data());
+        indexBuffer.init(physicalDevice, *device,            //
+                         indices.size() * sizeof(uint32_t),  //
+                         bufferUsage, memoryProperty, indices.data());
 
-        // ジオメトリには三角形データを渡す
-        vk::AccelerationStructureGeometryTrianglesDataKHR triangleData{};
-        triangleData.setVertexFormat(vk::Format::eR32G32B32Sfloat)
-            .setVertexData(vertexBuffer.address)
-            .setVertexStride(sizeof(Vertex))
-            .setMaxVertex(vertices.size())
-            .setIndexType(vk::IndexType::eUint32)
-            .setIndexData(indexBuffer.address);
+        // Create geometry
+        vk::AccelerationStructureGeometryTrianglesDataKHR triangles{};
+        triangles.setVertexFormat(vk::Format::eR32G32B32Sfloat);
+        triangles.setVertexData(vertexBuffer.address);
+        triangles.setVertexStride(sizeof(Vertex));
+        triangles.setMaxVertex(static_cast<uint32_t>(vertices.size()));
+        triangles.setIndexType(vk::IndexType::eUint32);
+        triangles.setIndexData(indexBuffer.address);
 
         vk::AccelerationStructureGeometryKHR geometry{};
-        geometry.setGeometryType(vk::GeometryTypeKHR::eTriangles)
-            .setGeometry({triangleData})
-            .setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+        geometry.setGeometryType(vk::GeometryTypeKHR::eTriangles);
+        geometry.setGeometry({triangles});
+        geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
-        // ASビルドに必要なサイズを取得する
-        vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo{};
-        buildGeometryInfo.setType(vk::AccelerationStructureTypeKHR::eBottomLevel)
-            .setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
-            .setGeometries(geometry);
-
-        const uint32_t primitiveCount = 1;
-        auto buildSizesInfo = device->getAccelerationStructureBuildSizesKHR(
-            vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
-
-        // ASを保持するためのバッファを作成する
-        blas.buffer = createAccelerationStructureBuffer(buildSizesInfo);
-
-        // ASを作成する
-        blas.handle = device->createAccelerationStructureKHRUnique(
-            vk::AccelerationStructureCreateInfoKHR{}
-                .setBuffer(blas.buffer.handle.get())
-                .setSize(buildSizesInfo.accelerationStructureSize)
-                .setType(vk::AccelerationStructureTypeKHR::eBottomLevel));
-    }
-
-    Buffer createBuffer(vk::DeviceSize size,
-                        vk::BufferUsageFlags usage,
-                        vk::MemoryPropertyFlags memoryPropertiy,
-                        void* data = nullptr) {
-        // Bufferオブジェクトを作成
-        Buffer buffer{};
-        buffer.handle = device->createBufferUnique(
-            vk::BufferCreateInfo{}.setSize(size).setUsage(usage).setQueueFamilyIndexCount(0));
-
-        // メモリを確保してバインドする
-        auto memoryRequirements = device->getBufferMemoryRequirements(buffer.handle.get());
-        vk::MemoryAllocateFlagsInfo memoryFlagsInfo{};
-        if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
-            memoryFlagsInfo.flags = vk::MemoryAllocateFlagBits::eDeviceAddress;
-        }
-
-        buffer.memory = device->allocateMemoryUnique(
-            vk::MemoryAllocateInfo{}
-                .setAllocationSize(memoryRequirements.size)
-                .setMemoryTypeIndex(vkutils::getMemoryType(memoryRequirements, memoryPropertiy))
-                .setPNext(&memoryFlagsInfo));
-        device->bindBufferMemory(buffer.handle.get(), buffer.memory.get(), 0);
-
-        // データをメモリにコピーする
-        if (data) {
-            void* dataPtr = device->mapMemory(buffer.memory.get(), 0, size);
-            memcpy(dataPtr, data, static_cast<size_t>(size));
-            device->unmapMemory(buffer.memory.get());
-        }
-
-        // バッファのデバイスアドレスを取得する
-        vk::BufferDeviceAddressInfoKHR bufferDeviceAddressInfo{buffer.handle.get()};
-        buffer.address = getBufferDeviceAddress(buffer.handle.get());
-
-        return buffer;
-    }
-
-    uint64_t getBufferDeviceAddress(vk::Buffer buffer) {
-        vk::BufferDeviceAddressInfoKHR bufferDeviceAI{buffer};
-        return device->getBufferAddressKHR(&bufferDeviceAI);
-    }
-
-    Buffer createAccelerationStructureBuffer(
-        vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo) {
-        // Bufferオブジェクトを作成
-        Buffer buffer{};
-        buffer.handle = device->createBufferUnique(
-            vk::BufferCreateInfo{}
-                .setSize(buildSizesInfo.accelerationStructureSize)
-                .setUsage(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
-                          vk::BufferUsageFlagBits::eShaderDeviceAddress));
-
-        // メモリを確保してバインドする
-        auto memoryRequirements = device->getBufferMemoryRequirements(buffer.handle.get());
-        vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{
-            vk::MemoryAllocateFlagBits::eDeviceAddress};
-
-        buffer.memory = device->allocateMemoryUnique(
-            vk::MemoryAllocateInfo{}
-                .setAllocationSize(memoryRequirements.size)
-                .setMemoryTypeIndex(vkutils::getMemoryType(
-                    memoryRequirements, vk::MemoryPropertyFlagBits::eHostVisible |
-                                            vk::MemoryPropertyFlagBits::eHostCoherent))
-                .setPNext(&memoryAllocateFlagsInfo));
-        device->bindBufferMemory(buffer.handle.get(), buffer.memory.get(), 0);
-
-        return buffer;
-    }
-
-    void mainLoop() {
-        while (!glfwWindowShouldClose(window)) {
-            glfwPollEvents();
-        }
-    }
-
-    void cleanup() {
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        // Create and build BLAS
+        uint32_t primitiveCount = static_cast<uint32_t>(indices.size() / 3);
+        bottomAccel.init(physicalDevice, *device, *commandPool, queue,
+                         vk::AccelerationStructureTypeKHR::eBottomLevel,
+                         geometry, primitiveCount);
     }
 };
