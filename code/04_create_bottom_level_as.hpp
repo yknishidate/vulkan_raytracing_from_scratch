@@ -215,6 +215,7 @@ private:
             vk::ImageUsageFlagBits::eStorage, surfaceFormat, WIDTH, HEIGHT);
         swapchainImages = device->getSwapchainImagesKHR(*swapchain);
         createSwapchainImageViews();
+        createBottomLevelAS();
     }
 
     void createSwapchainImageViews() {
