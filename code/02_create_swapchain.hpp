@@ -4,21 +4,6 @@
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
-struct Vertex {
-    float pos[3];
-};
-
-struct Buffer {
-    vk::UniqueBuffer handle;
-    vk::UniqueDeviceMemory deviceMemory;
-    uint64_t deviceAddress;
-};
-
-struct AccelStruct {
-    vk::UniqueAccelerationStructureKHR handle;
-    Buffer buffer;
-};
-
 class Application {
 public:
     void run() {
@@ -124,7 +109,8 @@ private:
             *device, *commandPool, queue, [&](vk::CommandBuffer commandBuffer) {
                 for (auto& image : swapchainImages) {
                     vkutils::setImageLayout(
-                        commandBuffer, image, vk::ImageLayout::eUndefined,
+                        commandBuffer, image,  //
+                        vk::ImageLayout::eUndefined,
                         vk::ImageLayout::ePresentSrcKHR,
                         {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
                 }
