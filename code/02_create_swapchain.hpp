@@ -91,28 +91,27 @@ private:
     }
 
     void createSwapchainImageViews() {
-        for (auto& image : swapchainImages) {
-            vk::ImageViewCreateInfo imageViewCreateInfo{};
-            imageViewCreateInfo.setImage(image);
-            imageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
-            imageViewCreateInfo.setFormat(surfaceFormat.format);
-            imageViewCreateInfo.setComponents(
+        for (auto image : swapchainImages) {
+            vk::ImageViewCreateInfo createInfo{};
+            createInfo.setImage(image);
+            createInfo.setViewType(vk::ImageViewType::e2D);
+            createInfo.setFormat(surfaceFormat.format);
+            createInfo.setComponents(
                 {vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG,
                  vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
-            imageViewCreateInfo.setSubresourceRange(
+            createInfo.setSubresourceRange(
                 {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
             swapchainImageViews.push_back(
-                device->createImageViewUnique(imageViewCreateInfo));
+                device->createImageViewUnique(createInfo));
         }
 
-        vkutils::oneTimeSubmit(
-            *device, *commandPool, queue, [&](vk::CommandBuffer commandBuffer) {
-                for (auto& image : swapchainImages) {
-                    vkutils::setImageLayout(
-                        commandBuffer, image,  //
-                        vk::ImageLayout::eUndefined,
-                        vk::ImageLayout::ePresentSrcKHR,
-                        {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+        vkutils::oneTimeSubmit(            //
+            *device, *commandPool, queue,  //
+            [&](vk::CommandBuffer commandBuffer) {
+                for (auto image : swapchainImages) {
+                    vkutils::setImageLayout(commandBuffer, image,  //
+                                            vk::ImageLayout::eUndefined,
+                                            vk::ImageLayout::ePresentSrcKHR);
                 }
             });
     }
