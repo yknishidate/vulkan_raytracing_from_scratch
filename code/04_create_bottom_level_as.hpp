@@ -19,8 +19,8 @@ struct Vertex {
 
 struct Buffer {
     vk::UniqueBuffer handle;
-    vk::UniqueDeviceMemory deviceMemory;
-    uint64_t deviceAddress;
+    vk::UniqueDeviceMemory memory;
+    uint64_t address;
 };
 
 struct AccelerationStructure {
@@ -153,11 +153,11 @@ private:
         // ジオメトリには三角形データを渡す
         vk::AccelerationStructureGeometryTrianglesDataKHR triangleData{};
         triangleData.setVertexFormat(vk::Format::eR32G32B32Sfloat)
-            .setVertexData(vertexBuffer.deviceAddress)
+            .setVertexData(vertexBuffer.address)
             .setVertexStride(sizeof(Vertex))
             .setMaxVertex(vertices.size())
             .setIndexType(vk::IndexType::eUint32)
-            .setIndexData(indexBuffer.deviceAddress);
+            .setIndexData(indexBuffer.address);
 
         vk::AccelerationStructureGeometryKHR geometry{};
         geometry.setGeometryType(vk::GeometryTypeKHR::eTriangles)
@@ -201,23 +201,23 @@ private:
             memoryFlagsInfo.flags = vk::MemoryAllocateFlagBits::eDeviceAddress;
         }
 
-        buffer.deviceMemory = device->allocateMemoryUnique(
+        buffer.memory = device->allocateMemoryUnique(
             vk::MemoryAllocateInfo{}
                 .setAllocationSize(memoryRequirements.size)
                 .setMemoryTypeIndex(vkutils::getMemoryType(memoryRequirements, memoryPropertiy))
                 .setPNext(&memoryFlagsInfo));
-        device->bindBufferMemory(buffer.handle.get(), buffer.deviceMemory.get(), 0);
+        device->bindBufferMemory(buffer.handle.get(), buffer.memory.get(), 0);
 
         // データをメモリにコピーする
         if (data) {
-            void* dataPtr = device->mapMemory(buffer.deviceMemory.get(), 0, size);
+            void* dataPtr = device->mapMemory(buffer.memory.get(), 0, size);
             memcpy(dataPtr, data, static_cast<size_t>(size));
-            device->unmapMemory(buffer.deviceMemory.get());
+            device->unmapMemory(buffer.memory.get());
         }
 
         // バッファのデバイスアドレスを取得する
         vk::BufferDeviceAddressInfoKHR bufferDeviceAddressInfo{buffer.handle.get()};
-        buffer.deviceAddress = getBufferDeviceAddress(buffer.handle.get());
+        buffer.address = getBufferDeviceAddress(buffer.handle.get());
 
         return buffer;
     }
@@ -242,14 +242,14 @@ private:
         vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{
             vk::MemoryAllocateFlagBits::eDeviceAddress};
 
-        buffer.deviceMemory = device->allocateMemoryUnique(
+        buffer.memory = device->allocateMemoryUnique(
             vk::MemoryAllocateInfo{}
                 .setAllocationSize(memoryRequirements.size)
                 .setMemoryTypeIndex(vkutils::getMemoryType(
                     memoryRequirements, vk::MemoryPropertyFlagBits::eHostVisible |
                                             vk::MemoryPropertyFlagBits::eHostCoherent))
                 .setPNext(&memoryAllocateFlagsInfo));
-        device->bindBufferMemory(buffer.handle.get(), buffer.deviceMemory.get(), 0);
+        device->bindBufferMemory(buffer.handle.get(), buffer.memory.get(), 0);
 
         return buffer;
     }

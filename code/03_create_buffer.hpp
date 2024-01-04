@@ -6,8 +6,8 @@ constexpr uint32_t HEIGHT = 600;
 
 struct Buffer {
     vk::UniqueBuffer buffer;
-    vk::UniqueDeviceMemory deviceMemory;
-    uint64_t deviceAddress{};
+    vk::UniqueDeviceMemory memory;
+    vk::DeviceAddress address{};
 
     void init(vk::PhysicalDevice physicalDevice,
               vk::Device device,
@@ -16,40 +16,42 @@ struct Buffer {
               vk::MemoryPropertyFlags memoryProperty,
               const void* data = nullptr) {
         // Create buffer
-        vk::BufferCreateInfo bufferCreateInfo{};
-        bufferCreateInfo.setSize(size);
-        bufferCreateInfo.setUsage(usage);
-        bufferCreateInfo.setQueueFamilyIndexCount(0);
-        buffer = device.createBufferUnique(bufferCreateInfo);
+        vk::BufferCreateInfo createInfo{};
+        createInfo.setSize(size);
+        createInfo.setUsage(usage);
+        buffer = device.createBufferUnique(createInfo);
 
         // Allocate memory
-        auto memoryRequirements = device.getBufferMemoryRequirements(*buffer);
-        vk::MemoryAllocateFlagsInfo memoryFlagsInfo{};
+        vk::MemoryRequirements memoryReq =
+            device.getBufferMemoryRequirements(*buffer);
+        vk::MemoryAllocateFlagsInfo allocateFlags{};
         if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
-            memoryFlagsInfo.flags = vk::MemoryAllocateFlagBits::eDeviceAddress;
+            allocateFlags.flags = vk::MemoryAllocateFlagBits::eDeviceAddress;
         }
 
+        uint32_t memoryType = vkutils::getMemoryType(physicalDevice,  //
+                                                     memoryReq, memoryProperty);
         vk::MemoryAllocateInfo allocateInfo{};
-        allocateInfo.setAllocationSize(memoryRequirements.size);
-        allocateInfo.setMemoryTypeIndex(vkutils::getMemoryType(
-            physicalDevice, memoryRequirements, memoryProperty));
-        allocateInfo.setPNext(&memoryFlagsInfo);
-        deviceMemory = device.allocateMemoryUnique(allocateInfo);
+        allocateInfo.setAllocationSize(memoryReq.size);
+        allocateInfo.setMemoryTypeIndex(memoryType);
+        allocateInfo.setPNext(&allocateFlags);
+        memory = device.allocateMemoryUnique(allocateInfo);
 
         // Bind buffer to memory
-        device.bindBufferMemory(*buffer, *deviceMemory, 0);
+        device.bindBufferMemory(*buffer, *memory, 0);
 
         // Copy data
         if (data) {
-            void* dataPtr = device.mapMemory(*deviceMemory, 0, size);
-            memcpy(dataPtr, data, size);
-            device.unmapMemory(*deviceMemory);
+            void* mappedPtr = device.mapMemory(*memory, 0, size);
+            memcpy(mappedPtr, data, size);
+            device.unmapMemory(*memory);
         }
 
         // Get address
         if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
-            vk::BufferDeviceAddressInfoKHR bufferDeviceAI{*buffer};
-            deviceAddress = device.getBufferAddressKHR(&bufferDeviceAI);
+            vk::BufferDeviceAddressInfoKHR addressInfo{};
+            addressInfo.setBuffer(*buffer);
+            address = device.getBufferAddressKHR(&addressInfo);
         }
     }
 };

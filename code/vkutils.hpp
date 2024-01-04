@@ -388,7 +388,8 @@ inline void setImageLayout(vk::CommandBuffer commandBuffer,
                            vk::Image image,
                            vk::ImageLayout oldImageLayout,
                            vk::ImageLayout newImageLayout,
-                           vk::ImageSubresourceRange subresourceRange,
+                           vk::ImageSubresourceRange subresourceRange =
+                               {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
                            vk::PipelineStageFlags srcStageMask =
                                vk::PipelineStageFlagBits::eAllCommands,
                            vk::PipelineStageFlags dstStageMask =

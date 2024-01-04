@@ -20,8 +20,8 @@ struct Vertex {
 
 struct Buffer {
     vk::UniqueBuffer handle;
-    vk::UniqueDeviceMemory deviceMemory;
-    uint64_t deviceAddress;
+    vk::UniqueDeviceMemory memory;
+    uint64_t address;
 };
 
 struct AccelerationStructure {
@@ -179,11 +179,11 @@ private:
         // ジオメトリには三角形データを渡す
         vk::AccelerationStructureGeometryTrianglesDataKHR triangleData{};
         triangleData.setVertexFormat(vk::Format::eR32G32B32Sfloat)
-            .setVertexData(vertexBuffer.deviceAddress)
+            .setVertexData(vertexBuffer.address)
             .setVertexStride(sizeof(Vertex))
             .setMaxVertex(vertices.size())
             .setIndexType(vk::IndexType::eUint32)
-            .setIndexData(indexBuffer.deviceAddress);
+            .setIndexData(indexBuffer.address);
 
         vk::AccelerationStructureGeometryKHR geometry{};
         geometry.setGeometryType(vk::GeometryTypeKHR::eTriangles)
@@ -222,7 +222,7 @@ private:
             .setMode(vk::BuildAccelerationStructureModeKHR::eBuild)
             .setDstAccelerationStructure(blas.handle.get())
             .setGeometries(geometry)
-            .setScratchData(scratchBuffer.deviceAddress);
+            .setScratchData(scratchBuffer.address);
 
         vk::AccelerationStructureBuildRangeInfoKHR accelerationStructureBuildRangeInfo{};
         accelerationStructureBuildRangeInfo.setPrimitiveCount(1)
@@ -237,7 +237,7 @@ private:
         vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
 
         // Bottom Level AS のハンドルを取得する
-        blas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({blas.handle.get()});
+        blas.buffer.address = device->getAccelerationStructureAddressKHR({blas.handle.get()});
     }
 
     void createTopLevelAS() {
@@ -250,7 +250,7 @@ private:
             .setMask(0xFF)
             .setInstanceShaderBindingTableRecordOffset(0)
             .setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable)
-            .setAccelerationStructureReference(blas.buffer.deviceAddress);
+            .setAccelerationStructureReference(blas.buffer.address);
 
         Buffer instancesBuffer = createBuffer(
             sizeof(vk::AccelerationStructureInstanceKHR),
@@ -261,7 +261,7 @@ private:
 
         // Bottom Level ASを入力としてセットする
         vk::AccelerationStructureGeometryInstancesDataKHR instancesData{};
-        instancesData.setArrayOfPointers(false).setData(instancesBuffer.deviceAddress);
+        instancesData.setArrayOfPointers(false).setData(instancesBuffer.address);
 
         vk::AccelerationStructureGeometryKHR geometry{};
         geometry.setGeometryType(vk::GeometryTypeKHR::eInstances)
@@ -299,7 +299,7 @@ private:
             .setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
             .setDstAccelerationStructure(tlas.handle.get())
             .setGeometries(geometry)
-            .setScratchData(scratchBuffer.deviceAddress);
+            .setScratchData(scratchBuffer.address);
 
         vk::AccelerationStructureBuildRangeInfoKHR accelerationStructureBuildRangeInfo{};
         accelerationStructureBuildRangeInfo.setPrimitiveCount(1)
@@ -314,7 +314,7 @@ private:
         vkutils::submitCommandBuffer(device.get(), commandBuffer.get(), graphicsQueue);
 
         // Bottom Level AS のハンドルを取得する
-        tlas.buffer.deviceAddress = device->getAccelerationStructureAddressKHR({tlas.handle.get()});
+        tlas.buffer.address = device->getAccelerationStructureAddressKHR({tlas.handle.get()});
     }
 
     void createRayTracingPipeLine() {
@@ -495,17 +495,17 @@ private:
             const uint32_t handleSizeAligned = vkutils::getHandleSizeAligned();
 
             vk::StridedDeviceAddressRegionKHR raygenShaderSbtEntry{};
-            raygenShaderSbtEntry.setDeviceAddress(raygenShaderBindingTable.deviceAddress)
+            raygenShaderSbtEntry.setDeviceAddress(raygenShaderBindingTable.address)
                 .setStride(handleSizeAligned)
                 .setSize(handleSizeAligned);
 
             vk::StridedDeviceAddressRegionKHR missShaderSbtEntry{};
-            missShaderSbtEntry.setDeviceAddress(missShaderBindingTable.deviceAddress)
+            missShaderSbtEntry.setDeviceAddress(missShaderBindingTable.address)
                 .setStride(handleSizeAligned)
                 .setSize(handleSizeAligned);
 
             vk::StridedDeviceAddressRegionKHR hitShaderSbtEntry{};
-            hitShaderSbtEntry.setDeviceAddress(hitShaderBindingTable.deviceAddress)
+            hitShaderSbtEntry.setDeviceAddress(hitShaderBindingTable.address)
                 .setStride(handleSizeAligned)
                 .setSize(handleSizeAligned);
 
@@ -598,23 +598,23 @@ private:
             memoryFlagsInfo.flags = vk::MemoryAllocateFlagBits::eDeviceAddress;
         }
 
-        buffer.deviceMemory = device->allocateMemoryUnique(
+        buffer.memory = device->allocateMemoryUnique(
             vk::MemoryAllocateInfo{}
                 .setAllocationSize(memoryRequirements.size)
                 .setMemoryTypeIndex(vkutils::getMemoryType(memoryRequirements, memoryPropertiy))
                 .setPNext(&memoryFlagsInfo));
-        device->bindBufferMemory(buffer.handle.get(), buffer.deviceMemory.get(), 0);
+        device->bindBufferMemory(buffer.handle.get(), buffer.memory.get(), 0);
 
         // データをメモリにコピーする
         if (data) {
-            void* dataPtr = device->mapMemory(buffer.deviceMemory.get(), 0, size);
+            void* dataPtr = device->mapMemory(buffer.memory.get(), 0, size);
             memcpy(dataPtr, data, static_cast<size_t>(size));
-            device->unmapMemory(buffer.deviceMemory.get());
+            device->unmapMemory(buffer.memory.get());
         }
 
         // バッファのデバイスアドレスを取得する
         vk::BufferDeviceAddressInfoKHR bufferDeviceAddressInfo{buffer.handle.get()};
-        buffer.deviceAddress = getBufferDeviceAddress(buffer.handle.get());
+        buffer.address = getBufferDeviceAddress(buffer.handle.get());
 
         return buffer;
     }
@@ -639,14 +639,14 @@ private:
         vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{
             vk::MemoryAllocateFlagBits::eDeviceAddress};
 
-        buffer.deviceMemory = device->allocateMemoryUnique(
+        buffer.memory = device->allocateMemoryUnique(
             vk::MemoryAllocateInfo{}
                 .setAllocationSize(memoryRequirements.size)
                 .setMemoryTypeIndex(vkutils::getMemoryType(
                     memoryRequirements, vk::MemoryPropertyFlagBits::eHostVisible |
                                             vk::MemoryPropertyFlagBits::eHostCoherent))
                 .setPNext(&memoryAllocateFlagsInfo));
-        device->bindBufferMemory(buffer.handle.get(), buffer.deviceMemory.get(), 0);
+        device->bindBufferMemory(buffer.handle.get(), buffer.memory.get(), 0);
 
         return buffer;
     }
@@ -665,17 +665,17 @@ private:
         vk::MemoryAllocateFlagsInfo memoryAllocateFlagsInfo{
             vk::MemoryAllocateFlagBits::eDeviceAddress};
 
-        scratchBuffer.deviceMemory = device->allocateMemoryUnique(
+        scratchBuffer.memory = device->allocateMemoryUnique(
             vk::MemoryAllocateInfo{}
                 .setAllocationSize(memoryRequirements.size)
                 .setMemoryTypeIndex(vkutils::getMemoryType(
                     memoryRequirements, vk::MemoryPropertyFlagBits::eDeviceLocal))
                 .setPNext(&memoryAllocateFlagsInfo));
-        device->bindBufferMemory(scratchBuffer.handle.get(), scratchBuffer.deviceMemory.get(), 0);
+        device->bindBufferMemory(scratchBuffer.handle.get(), scratchBuffer.memory.get(), 0);
 
         // バッファのデバイスアドレスを取得する
         vk::BufferDeviceAddressInfoKHR bufferDeviceAddressInfo{scratchBuffer.handle.get()};
-        scratchBuffer.deviceAddress = getBufferDeviceAddress(scratchBuffer.handle.get());
+        scratchBuffer.address = getBufferDeviceAddress(scratchBuffer.handle.get());
 
         return scratchBuffer;
     }
