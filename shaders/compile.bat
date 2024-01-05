@@ -1,5 +1,6 @@
 @echo off
+set GLSLANG_VALIDATOR=%VULKAN_SDK%/Bin/glslangValidator.exe
 
-%VULKAN_SDK%/Bin/glslc.exe raygen.rgen -o raygen.rgen.spv --target-env=vulkan1.2
-%VULKAN_SDK%/Bin/glslc.exe closesthit.rchit -o closesthit.rchit.spv --target-env=vulkan1.2
-%VULKAN_SDK%/Bin/glslc.exe miss.rmiss -o miss.rmiss.spv --target-env=vulkan1.2
+for %%s in (raygen.rgen closesthit.rchit miss.rmiss) do (
+    %GLSLANG_VALIDATOR% %%s -V -o %%s.spv --target-env vulkan1.2
+)
