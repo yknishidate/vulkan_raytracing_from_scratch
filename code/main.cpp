@@ -1,4 +1,4 @@
-#include "04_create_bottom_level_as.hpp"
+#include "12_hello_triangle.hpp"
 
 int main() {
     Application app;
