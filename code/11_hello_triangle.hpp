@@ -170,14 +170,14 @@ private:
     AccelStruct bottomAccel{};
     AccelStruct topAccel{};
 
+    // Descriptor
+    vk::UniqueDescriptorPool descPool;
+    vk::UniqueDescriptorSetLayout descSetLayout;
+    vk::UniqueDescriptorSet descSet;
+
     // Pipeline
     vk::UniquePipeline pipeline;
     vk::UniquePipelineLayout pipelineLayout;
-
-    // Descriptor
-    vk::UniqueDescriptorSetLayout descSetLayout;
-    vk::UniqueDescriptorPool descPool;
-    vk::UniqueDescriptorSet descSet;
 
     // Shader binding table
     std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
@@ -248,13 +248,16 @@ private:
         createBottomLevelAS();
         createTopLevelAS();
 
+        // Shader
+        prepareShaders();
+
         // Pipeline, DescSet
         createDescriptorPool();
         createDescSetLayout();
-        prepareShaderStages();
+        createDescriptorSet();
+
         createRayTracingPipeline();
         createShaderBindingTable();
-        createDescriptorSet();
     }
 
     void createSwapchainImageViews() {
@@ -379,25 +382,6 @@ private:
                       primitiveCount);
     }
 
-    void createDescSetLayout() {
-        std::vector<vk::DescriptorSetLayoutBinding> bindings(2);
-        // [0]: For AS
-        bindings[0].setBinding(0);
-        bindings[0].setDescriptorType(
-            vk::DescriptorType::eAccelerationStructureKHR);
-        bindings[0].setDescriptorCount(1);
-        bindings[0].setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
-        // [1]: For storage image
-        bindings[1].setBinding(1);
-        bindings[1].setDescriptorType(vk::DescriptorType::eStorageImage);
-        bindings[1].setDescriptorCount(1);
-        bindings[1].setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
-
-        vk::DescriptorSetLayoutCreateInfo createInfo{};
-        createInfo.setBindings(bindings);
-        descSetLayout = device->createDescriptorSetLayoutUnique(createInfo);
-    }
-
     void addShader(uint32_t shaderIndex,
                    uint32_t groupIndex,
                    const std::string& filename,
@@ -431,7 +415,7 @@ private:
         }
     }
 
-    void prepareShaderStages() {
+    void prepareShaders() {
         shaderStages.resize(3);
         shaderModules.resize(3);
         shaderGroups.resize(3);
@@ -442,6 +426,49 @@ private:
                   vk::ShaderStageFlagBits::eMissKHR);
         addShader(2, 2, "closesthit.rchit.spv",
                   vk::ShaderStageFlagBits::eClosestHitKHR);
+    }
+
+    void createDescriptorPool() {
+        std::vector<vk::DescriptorPoolSize> poolSizes = {
+            {vk::DescriptorType::eAccelerationStructureKHR, 1},
+            {vk::DescriptorType::eStorageImage, 1},
+        };
+
+        vk::DescriptorPoolCreateInfo createInfo{};
+        createInfo.setPoolSizes(poolSizes);
+        createInfo.setMaxSets(1);
+        createInfo.setFlags(
+            vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
+        descPool = device->createDescriptorPoolUnique(createInfo);
+    }
+
+    void createDescSetLayout() {
+        std::vector<vk::DescriptorSetLayoutBinding> bindings(2);
+        // [0]: For AS
+        bindings[0].setBinding(0);
+        bindings[0].setDescriptorType(
+            vk::DescriptorType::eAccelerationStructureKHR);
+        bindings[0].setDescriptorCount(1);
+        bindings[0].setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
+        // [1]: For storage image
+        bindings[1].setBinding(1);
+        bindings[1].setDescriptorType(vk::DescriptorType::eStorageImage);
+        bindings[1].setDescriptorCount(1);
+        bindings[1].setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
+
+        vk::DescriptorSetLayoutCreateInfo createInfo{};
+        createInfo.setBindings(bindings);
+        descSetLayout = device->createDescriptorSetLayoutUnique(createInfo);
+    }
+
+    void createDescriptorSet() {
+        std::cout << "Create desc set\n";
+
+        vk::DescriptorSetAllocateInfo allocateInfo{};
+        allocateInfo.setDescriptorPool(*descPool);
+        allocateInfo.setSetLayouts(*descSetLayout);
+        descSet = std::move(
+            device->allocateDescriptorSetsUnique(allocateInfo).front());
     }
 
     void createRayTracingPipeline() {
@@ -489,7 +516,7 @@ private:
         }
 
         // Create SBT
-        vk::BufferUsageFlags sbtBufferUsageFlags =
+        vk::BufferUsageFlags sbtBufferUsage =
             vk::BufferUsageFlagBits::eShaderBindingTableKHR |
             vk::BufferUsageFlagBits::eTransferSrc |
             vk::BufferUsageFlagBits::eShaderDeviceAddress;
@@ -497,38 +524,14 @@ private:
             vk::MemoryPropertyFlagBits::eHostVisible |  //
             vk::MemoryPropertyFlagBits::eHostCoherent;
         raygenSBT.init(physicalDevice, *device,  //
-                       handleSize, sbtBufferUsageFlags, sbtMemoryProperty,
+                       handleSize, sbtBufferUsage, sbtMemoryProperty,
                        shaderHandleStorage.data() + 0 * handleSizeAligned);
         missSBT.init(physicalDevice, *device,  //
-                     handleSize, sbtBufferUsageFlags, sbtMemoryProperty,
+                     handleSize, sbtBufferUsage, sbtMemoryProperty,
                      shaderHandleStorage.data() + 1 * handleSizeAligned);
         hitSBT.init(physicalDevice, *device,  //
-                    handleSize, sbtBufferUsageFlags, sbtMemoryProperty,
+                    handleSize, sbtBufferUsage, sbtMemoryProperty,
                     shaderHandleStorage.data() + 2 * handleSizeAligned);
-    }
-
-    void createDescriptorPool() {
-        std::vector<vk::DescriptorPoolSize> poolSizes = {
-            {vk::DescriptorType::eAccelerationStructureKHR, 1},
-            {vk::DescriptorType::eStorageImage, 1},
-        };
-
-        vk::DescriptorPoolCreateInfo createInfo{};
-        createInfo.setPoolSizes(poolSizes);
-        createInfo.setMaxSets(1);
-        createInfo.setFlags(
-            vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
-        descPool = device->createDescriptorPoolUnique(createInfo);
-    }
-
-    void createDescriptorSet() {
-        std::cout << "Create desc set\n";
-
-        vk::DescriptorSetAllocateInfo allocateInfo{};
-        allocateInfo.setDescriptorPool(*descPool);
-        allocateInfo.setSetLayouts(*descSetLayout);
-        descSet = std::move(
-            device->allocateDescriptorSetsUnique(allocateInfo).front());
     }
 
     void updateDescriptorSet(vk::ImageView imageView) {
