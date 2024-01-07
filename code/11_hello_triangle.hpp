@@ -183,8 +183,6 @@ private:
     std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
     std::vector<vk::UniqueShaderModule> shaderModules;
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
-    uint32_t handleSize{};
-    uint32_t handleAlignment{};
     uint32_t handleSizeAligned{};
     Buffer raygenSBT{};
     Buffer missSBT{};
@@ -498,13 +496,13 @@ private:
         // Get RT props
         vk::PhysicalDeviceRayTracingPipelinePropertiesKHR rtProperties =
             vkutils::getRayTracingProps(physicalDevice);
-        handleSize = rtProperties.shaderGroupHandleSize;
-        handleAlignment = rtProperties.shaderGroupHandleAlignment;
+        uint32_t handleSize = rtProperties.shaderGroupHandleSize;
+        uint32_t handleAlignment = rtProperties.shaderGroupHandleAlignment;
         handleSizeAligned =
             vkutils::getAlignedSize(handleSize, handleAlignment);
 
-        const uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
-        const uint32_t sbtSize = groupCount * handleSizeAligned;
+        uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
+        uint32_t sbtSize = groupCount * handleSizeAligned;
 
         // Get shader group handles
         std::vector<uint8_t> shaderHandleStorage(sbtSize);
