@@ -183,10 +183,14 @@ private:
     std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
     std::vector<vk::UniqueShaderModule> shaderModules;
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
-    uint32_t handleSizeAligned{};
-    Buffer raygenSBT{};
-    Buffer missSBT{};
-    Buffer hitSBT{};
+
+    Buffer sbt{};
+    uint32_t raygenCount = 1;
+    uint32_t missCount = 1;
+    uint32_t hitCount = 1;
+    vk::StridedDeviceAddressRegionKHR raygenRegion{};
+    vk::StridedDeviceAddressRegionKHR missRegion{};
+    vk::StridedDeviceAddressRegionKHR hitRegion{};
 
     void initWindow() {
         glfwInit();
@@ -498,38 +502,76 @@ private:
             vkutils::getRayTracingProps(physicalDevice);
         uint32_t handleSize = rtProperties.shaderGroupHandleSize;
         uint32_t handleAlignment = rtProperties.shaderGroupHandleAlignment;
-        handleSizeAligned =
-            vkutils::getAlignedSize(handleSize, handleAlignment);
+        uint32_t baseAlignment = rtProperties.shaderGroupBaseAlignment;
+        uint32_t handleSizeAligned =
+            vkutils::alignUp(handleSize, handleAlignment);
 
-        uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
-        uint32_t sbtSize = groupCount * handleSizeAligned;
+        raygenRegion.setStride(
+            vkutils::alignUp(handleSizeAligned, baseAlignment));
+        raygenRegion.setSize(raygenRegion.stride);
+
+        missRegion.setStride(handleSizeAligned);
+        missRegion.setSize(
+            vkutils::alignUp(missCount * handleSizeAligned, baseAlignment));
+
+        hitRegion.setStride(handleSizeAligned);
+        hitRegion.setSize(
+            vkutils::alignUp(hitCount * handleSizeAligned, baseAlignment));
 
         // Get shader group handles
-        std::vector<uint8_t> shaderHandleStorage(sbtSize);
+        uint32_t handleCount = raygenCount + missCount + hitCount;
+        uint32_t handleStorageSize = handleCount * handleSize;
+        std::vector<uint8_t> handleStorage(handleStorageSize);
         auto result = device->getRayTracingShaderGroupHandlesKHR(
-            *pipeline, 0, groupCount, sbtSize, shaderHandleStorage.data());
+            *pipeline, 0, handleCount, handleStorageSize, handleStorage.data());
         if (result != vk::Result::eSuccess) {
             std::cerr << "Failed to get ray tracing shader group handles.\n";
             std::abort();
         }
 
+        vk::DeviceSize sbtSize =
+            raygenRegion.size + missRegion.size + hitRegion.size;
+
         // Create SBT
-        vk::BufferUsageFlags sbtBufferUsage =
-            vk::BufferUsageFlagBits::eShaderBindingTableKHR |
-            vk::BufferUsageFlagBits::eTransferSrc |
-            vk::BufferUsageFlagBits::eShaderDeviceAddress;
-        vk::MemoryPropertyFlags sbtMemoryProperty =
-            vk::MemoryPropertyFlagBits::eHostVisible |  //
-            vk::MemoryPropertyFlagBits::eHostCoherent;
-        raygenSBT.init(physicalDevice, *device,  //
-                       handleSize, sbtBufferUsage, sbtMemoryProperty,
-                       shaderHandleStorage.data() + 0 * handleSizeAligned);
-        missSBT.init(physicalDevice, *device,  //
-                     handleSize, sbtBufferUsage, sbtMemoryProperty,
-                     shaderHandleStorage.data() + 1 * handleSizeAligned);
-        hitSBT.init(physicalDevice, *device,  //
-                    handleSize, sbtBufferUsage, sbtMemoryProperty,
-                    shaderHandleStorage.data() + 2 * handleSizeAligned);
+        sbt.init(physicalDevice, *device, sbtSize,
+                 vk::BufferUsageFlagBits::eShaderBindingTableKHR |
+                     vk::BufferUsageFlagBits::eTransferSrc |
+                     vk::BufferUsageFlagBits::eShaderDeviceAddress,
+                 vk::MemoryPropertyFlagBits::eHostVisible |
+                     vk::MemoryPropertyFlagBits::eHostCoherent);
+
+        // Copy handles
+        uint32_t handleIndex = 0;
+        uint8_t* sbtHead =
+            static_cast<uint8_t*>(device->mapMemory(*sbt.memory, 0, sbtSize));
+
+        uint8_t* dstPtr = sbtHead;
+        auto copyHandle = [&](uint32_t index) {
+            std::memcpy(dstPtr, handleStorage.data() + handleSize * index,
+                        handleSize);
+        };
+
+        // Raygen
+        copyHandle(handleIndex++);
+
+        // Miss
+        dstPtr = sbtHead + raygenRegion.size;
+        for (uint32_t c = 0; c < missCount; c++) {
+            copyHandle(handleIndex++);
+            dstPtr += missRegion.stride;
+        }
+
+        // Hit
+        dstPtr = sbtHead + raygenRegion.size + missRegion.size;
+        for (uint32_t c = 0; c < hitCount; c++) {
+            copyHandle(handleIndex++);
+            dstPtr += hitRegion.stride;
+        }
+
+        raygenRegion.setDeviceAddress(sbt.address);
+        missRegion.setDeviceAddress(sbt.address + raygenRegion.size);
+        hitRegion.setDeviceAddress(sbt.address + raygenRegion.size +
+                                   missRegion.size);
     }
 
     void updateDescriptorSet(vk::ImageView imageView) {
@@ -581,25 +623,10 @@ private:
         );
 
         // Trace rays
-        vk::StridedDeviceAddressRegionKHR raygenEntry{};
-        raygenEntry.setDeviceAddress(raygenSBT.address);
-        raygenEntry.setStride(handleSizeAligned);
-        raygenEntry.setSize(handleSizeAligned);
-
-        vk::StridedDeviceAddressRegionKHR missEntry{};
-        missEntry.setDeviceAddress(missSBT.address);
-        missEntry.setStride(handleSizeAligned);
-        missEntry.setSize(handleSizeAligned);
-
-        vk::StridedDeviceAddressRegionKHR hitEntry{};
-        hitEntry.setDeviceAddress(hitSBT.address);
-        hitEntry.setStride(handleSizeAligned);
-        hitEntry.setSize(handleSizeAligned);
-
         commandBuffer->traceRaysKHR(  //
-            raygenEntry,              // raygen
-            missEntry,                // miss
-            hitEntry,                 // hit
+            raygenRegion,             // raygen
+            missRegion,               // miss
+            hitRegion,                // hit
             {},                       // callable
             WIDTH, HEIGHT, 1          // width, height, depth
         );
