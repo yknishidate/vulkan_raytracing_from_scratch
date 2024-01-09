@@ -243,6 +243,7 @@ private:
         createDescSetLayout();
         createDescriptorSet();
         createRayTracingPipeline();
+        createShaderBindingTable();
     }
 
     void createSwapchainImageViews() {
