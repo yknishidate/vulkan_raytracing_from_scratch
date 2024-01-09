@@ -185,9 +185,6 @@ private:
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
 
     Buffer sbt{};
-    uint32_t raygenCount = 1;
-    uint32_t missCount = 1;
-    uint32_t hitCount = 1;
     vk::StridedDeviceAddressRegionKHR raygenRegion{};
     vk::StridedDeviceAddressRegionKHR missRegion{};
     vk::StridedDeviceAddressRegionKHR hitRegion{};
@@ -385,49 +382,59 @@ private:
     }
 
     void addShader(uint32_t shaderIndex,
-                   uint32_t groupIndex,
                    const std::string& filename,
                    vk::ShaderStageFlagBits stage) {
         shaderModules[shaderIndex] =
             vkutils::createShaderModule(*device, SHADER_DIR + filename);
-
         shaderStages[shaderIndex].setStage(stage);
         shaderStages[shaderIndex].setModule(*shaderModules[shaderIndex]);
         shaderStages[shaderIndex].setPName("main");
-
-        shaderGroups[groupIndex].setGeneralShader(VK_SHADER_UNUSED_KHR);
-        shaderGroups[groupIndex].setClosestHitShader(VK_SHADER_UNUSED_KHR);
-        shaderGroups[groupIndex].setAnyHitShader(VK_SHADER_UNUSED_KHR);
-        shaderGroups[groupIndex].setIntersectionShader(VK_SHADER_UNUSED_KHR);
-
-        switch (stage) {
-            case vk::ShaderStageFlagBits::eRaygenKHR:
-            case vk::ShaderStageFlagBits::eMissKHR:
-                shaderGroups[groupIndex].setType(
-                    vk::RayTracingShaderGroupTypeKHR::eGeneral);
-                shaderGroups[groupIndex].setGeneralShader(shaderIndex);
-                break;
-            case vk::ShaderStageFlagBits::eClosestHitKHR:
-                shaderGroups[groupIndex].setType(
-                    vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup);
-                shaderGroups[groupIndex].setClosestHitShader(shaderIndex);
-                break;
-            default:
-                break;
-        }
     }
 
     void prepareShaders() {
+        // Create shader modules and shader stages
+        uint32_t raygenShader = 0;
+        uint32_t missShader = 1;
+        uint32_t chitShader = 2;
         shaderStages.resize(3);
         shaderModules.resize(3);
+
+        addShader(raygenShader, "raygen.rgen.spv",  //
+                  vk::ShaderStageFlagBits::eRaygenKHR);
+        addShader(missShader, "miss.rmiss.spv",  //
+                  vk::ShaderStageFlagBits::eMissKHR);
+        addShader(chitShader, "closesthit.rchit.spv",
+                  vk::ShaderStageFlagBits::eClosestHitKHR);
+
+        // Create shader groups
+        uint32_t raygenGroup = 0;
+        uint32_t missGroup = 1;
+        uint32_t hitGroup = 2;
         shaderGroups.resize(3);
 
-        addShader(0, 0, "raygen.rgen.spv",  //
-                  vk::ShaderStageFlagBits::eRaygenKHR);
-        addShader(1, 1, "miss.rmiss.spv",  //
-                  vk::ShaderStageFlagBits::eMissKHR);
-        addShader(2, 2, "closesthit.rchit.spv",
-                  vk::ShaderStageFlagBits::eClosestHitKHR);
+        // Raygen group
+        shaderGroups[raygenGroup].setType(
+            vk::RayTracingShaderGroupTypeKHR::eGeneral);
+        shaderGroups[raygenGroup].setGeneralShader(raygenShader);
+        shaderGroups[raygenGroup].setClosestHitShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[raygenGroup].setAnyHitShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[raygenGroup].setIntersectionShader(VK_SHADER_UNUSED_KHR);
+
+        // Miss group
+        shaderGroups[missGroup].setType(
+            vk::RayTracingShaderGroupTypeKHR::eGeneral);
+        shaderGroups[missGroup].setGeneralShader(missShader);
+        shaderGroups[missGroup].setClosestHitShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[missGroup].setAnyHitShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[missGroup].setIntersectionShader(VK_SHADER_UNUSED_KHR);
+
+        // Hit group
+        shaderGroups[hitGroup].setType(
+            vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup);
+        shaderGroups[hitGroup].setGeneralShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[hitGroup].setClosestHitShader(chitShader);
+        shaderGroups[hitGroup].setAnyHitShader(VK_SHADER_UNUSED_KHR);
+        shaderGroups[hitGroup].setIntersectionShader(VK_SHADER_UNUSED_KHR);
     }
 
     void createDescriptorPool() {
@@ -506,20 +513,36 @@ private:
         uint32_t handleSizeAligned =
             vkutils::alignUp(handleSize, handleAlignment);
 
+        // Set strides and sizes
+        uint32_t raygenShaderCount = 1;  // raygen count must be 1
+        uint32_t missShaderCount = 1;
+        uint32_t hitShaderCount = 1;
+
         raygenRegion.setStride(
             vkutils::alignUp(handleSizeAligned, baseAlignment));
         raygenRegion.setSize(raygenRegion.stride);
 
         missRegion.setStride(handleSizeAligned);
-        missRegion.setSize(
-            vkutils::alignUp(missCount * handleSizeAligned, baseAlignment));
+        missRegion.setSize(vkutils::alignUp(missShaderCount * handleSizeAligned,
+                                            baseAlignment));
 
         hitRegion.setStride(handleSizeAligned);
-        hitRegion.setSize(
-            vkutils::alignUp(hitCount * handleSizeAligned, baseAlignment));
+        hitRegion.setSize(vkutils::alignUp(hitShaderCount * handleSizeAligned,
+                                           baseAlignment));
+
+        // Create SBT
+        vk::DeviceSize sbtSize =
+            raygenRegion.size + missRegion.size + hitRegion.size;
+        sbt.init(physicalDevice, *device, sbtSize,
+                 vk::BufferUsageFlagBits::eShaderBindingTableKHR |
+                     vk::BufferUsageFlagBits::eTransferSrc |
+                     vk::BufferUsageFlagBits::eShaderDeviceAddress,
+                 vk::MemoryPropertyFlagBits::eHostVisible |
+                     vk::MemoryPropertyFlagBits::eHostCoherent);
 
         // Get shader group handles
-        uint32_t handleCount = raygenCount + missCount + hitCount;
+        uint32_t handleCount =
+            raygenShaderCount + missShaderCount + hitShaderCount;
         uint32_t handleStorageSize = handleCount * handleSize;
         std::vector<uint8_t> handleStorage(handleStorageSize);
         auto result = device->getRayTracingShaderGroupHandlesKHR(
@@ -528,17 +551,6 @@ private:
             std::cerr << "Failed to get ray tracing shader group handles.\n";
             std::abort();
         }
-
-        vk::DeviceSize sbtSize =
-            raygenRegion.size + missRegion.size + hitRegion.size;
-
-        // Create SBT
-        sbt.init(physicalDevice, *device, sbtSize,
-                 vk::BufferUsageFlagBits::eShaderBindingTableKHR |
-                     vk::BufferUsageFlagBits::eTransferSrc |
-                     vk::BufferUsageFlagBits::eShaderDeviceAddress,
-                 vk::MemoryPropertyFlagBits::eHostVisible |
-                     vk::MemoryPropertyFlagBits::eHostCoherent);
 
         // Copy handles
         uint32_t handleIndex = 0;
@@ -556,14 +568,14 @@ private:
 
         // Miss
         dstPtr = sbtHead + raygenRegion.size;
-        for (uint32_t c = 0; c < missCount; c++) {
+        for (uint32_t c = 0; c < missShaderCount; c++) {
             copyHandle(handleIndex++);
             dstPtr += missRegion.stride;
         }
 
         // Hit
         dstPtr = sbtHead + raygenRegion.size + missRegion.size;
-        for (uint32_t c = 0; c < hitCount; c++) {
+        for (uint32_t c = 0; c < hitShaderCount; c++) {
             copyHandle(handleIndex++);
             dstPtr += hitRegion.stride;
         }
