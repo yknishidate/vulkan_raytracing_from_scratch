@@ -1,4 +1,4 @@
-#include "08_create_pipeline.hpp"
+#include "11_hello_triangle.hpp"
 
 int main() {
     Application app;
