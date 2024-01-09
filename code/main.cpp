@@ -1,4 +1,4 @@
-#include "11_hello_triangle.hpp"
+#include "06_create_shader.hpp"
 
 int main() {
     Application app;
