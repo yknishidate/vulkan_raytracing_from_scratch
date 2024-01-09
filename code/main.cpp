@@ -1,4 +1,4 @@
-#include "07_create_descriptor.hpp"
+#include "08_create_pipeline.hpp"
 
 int main() {
     Application app;
