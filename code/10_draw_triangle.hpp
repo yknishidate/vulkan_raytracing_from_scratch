@@ -261,7 +261,7 @@ private:
 
     void createSwapchainImageViews() {
         for (auto image : swapchainImages) {
-            vk::ImageViewCreateInfo createInfo{};
+            vk::createInfo createInfo{};
             createInfo.setImage(image);
             createInfo.setViewType(vk::ImageViewType::e2D);
             createInfo.setFormat(surfaceFormat.format);
