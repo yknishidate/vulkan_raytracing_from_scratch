@@ -9,6 +9,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <limits>
 
 #include <vulkan/vulkan.hpp>
 
